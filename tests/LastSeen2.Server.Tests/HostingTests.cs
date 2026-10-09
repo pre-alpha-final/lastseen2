@@ -18,6 +18,11 @@ public sealed class AppFactory : WebApplicationFactory<global::Program>
         builder.UseContentRoot(Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,
             "../../../../../src/LastSeen2.Server")));
         builder.UseEnvironment("Development");
+        builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["ConnectionStrings:LastSeen2"] = "mongodb://127.0.0.1:27017/lastseen2_tests",
+            ["Authentication:AccessKey"] = "test-only-not-a-real-key"
+        }));
     }
 }
 
@@ -64,15 +69,15 @@ public class HostingTests(AppFactory factory) : IClassFixture<AppFactory>
     [InlineData("DELETE", "/api/channels/11111111-1111-1111-1111-111111111111?expectedRevision=0")]
     [InlineData("PUT", "/api/channels/11111111-1111-1111-1111-111111111111/move")]
     [InlineData("POST", "/api/metadata")]
-    public async Task FoundationDoesNotClaimToAuthenticateOrPersist(string method, string path)
+    public async Task EveryDeclaredRouteRejectsUnauthenticatedRequests(string method, string path)
     {
         using var client = factory.CreateClient();
         using var request = new HttpRequestMessage(new HttpMethod(method), path);
         var response = await client.SendAsync(request);
-        Assert.Equal(HttpStatusCode.NotImplemented, response.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         var error = await response.Content.ReadFromJsonAsync<ApiError>();
-        Assert.Equal("not_implemented", error!.Code);
-        Assert.Equal(501, error.Status);
+        Assert.Equal("unauthorized", error!.Code);
+        Assert.Equal(401, error.Status);
     }
 
     [Theory]

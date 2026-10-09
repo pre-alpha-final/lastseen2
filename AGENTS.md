@@ -25,14 +25,14 @@ Preserve each file's existing line endings exactly.
 
 ## Current implementation baseline
 
-At the end of the initial session on 2026-10-09:
+At the end of Phase 2 on 2026-10-09:
 
-- Plan creation and Phase 1 are complete. Phase 2 (authentication, persistence, and bookmark API) is next; Phases 2–7 remain unimplemented.
+- Plan creation and Phases 1–2 are complete. Phase 3 (credential-free metadata) is next; Phases 3–7 remain unimplemented.
 - The original Blazor starter UI remains. No bookmark management interface exists yet.
-- Server hosts the client and declares the planned API routes. `FoundationApi` deliberately returns 501 Problem Details for every declared route; it does not authenticate, persist, or fetch metadata.
+- `BookmarkApi` implements protected authentication checks, board reads, CRUD, and ordering. Metadata is protected and validates URLs but returns 501 until Phase 3.
 - Unknown `/api` routes return 404 Problem Details, including paths containing dots. Keep them out of the SPA HTML fallback.
-- Configuration binds successfully, but required-value validation and MongoDB application integration belong to Phase 2. A successful connectivity probe does not mean the app's persistence is implemented.
-- The completed Phase 1 suite has 25 tests (3 contract, 22 server). Server tests passed again after the configuration changes. Release publish and production HTTP asset checks also passed. These are historical results; rerun relevant checks after changes.
+- Startup requires a valid `ConnectionStrings:LastSeen2` URI with a database name, a valid collection, and `Authentication:AccessKey`. Board operations connect lazily; outages return safe 503 responses.
+- The completed Phase 2 suite has 45 passing tests (3 contract, 42 server), including a real isolated MongoDB integration test. Without `LASTSEEN2_TEST_MONGODB`, that one test is explicitly skipped. Release publish, production HTTP assets, process restart persistence, and real database-outage checks passed. Rerun relevant checks after changes.
 
 ## Project structure and local startup
 
@@ -86,13 +86,13 @@ Publish the server, not just the client. `artifacts/` is ignored and suitable fo
 | `Authentication:AccessKey` | `Authentication__AccessKey` | Shared application access key |
 
 - The connection string name must remain LastSeen2-specific because the user sets environment variables locally alongside other applications.
-- There is **no separate database setting**. Do not reintroduce `MongoDb:Database`, `MongoDb__Database`, or a hardcoded database name. Phase 2 must obtain the database name from the URI using the MongoDB driver and reject a missing name.
+- There is **no separate database setting**. Do not reintroduce `MongoDb:Database`, `MongoDb__Database`, or a hardcoded database name. The server obtains the database name from the URI using the MongoDB driver and rejects a missing name.
 - `authSource` is the authentication database, not a substitute for the URI's data database name.
 - The collection is **`lastseen2`**, not the earlier planned `content`.
 - `Program.cs` maps `GetConnectionString("LastSeen2")` into `MongoDbOptions.ConnectionString`. The old `MongoDb__ConnectionString` name is obsolete.
 - Keep credentials in the environment, with empty placeholders in committed appsettings. Never put them in the client, shared contracts, documentation, command-line arguments, logs, or test fixtures. Do not reproduce credentials from prior conversation history.
 - On 2026-10-09, `ConnectionStrings__LastSeen2` existed in the local process and Windows user environment. A read-only probe successfully pinged the remote database and read from collection `lastseen2`; no document contents were displayed and no writes occurred. This did not test write permissions, database creation rights, or application persistence.
-- The probe used MongoDB.Driver 3.12.0 in an ignored temporary project. The application itself has no MongoDB driver reference yet; add the required dependency in Phase 2. Do not treat the temporary probe as app code or a required test prerequisite.
+- The server now references MongoDB.Driver 3.12.0. The original read-only probe remains an ignored temporary project and is not a test prerequisite.
 - Windows environment changes may require restarting Visual Studio or another already-running host. Check whether settings exist without printing their values. Recheck current availability rather than assuming future agent environments inherit them.
 - Use an explicitly isolated test database/collection for write-based integration tests. Never drop, clear, or seed the user's configured application collection as test setup/cleanup. The read-only connectivity verification is not authorization for destructive database operations.
 
@@ -108,6 +108,16 @@ Publish the server, not just the client. `artifacts/` is ignored and suitable fo
 - Dark-only Bootswatch Sketchy UI follows the reference image: Saved Videos at roughly two-thirds width, Channels at one-third, stacked on mobile. Default new channels to Frequent. Include touch/keyboard alternatives to drag-and-drop.
 - Duplicate URLs are allowed; external links open in a new tab. Search, tags, watched-state tracking, uploads, embedded playback, import/export, provider credentials, and background synchronization are outside the current plan.
 
-## Phase 2 entry point
+## Phase 3 entry point
 
-Follow the full Phase 2 acceptance criteria in `docs/plan.md`. Replace the API scaffolds with shared-key protection, required configuration validation, request validation, and atomic MongoDB persistence. Protect metadata routes too, even while their implementation remains deferred to Phase 3. Preserve agreed ordering, revision conflicts, board-size safeguards, and safe error responses. Update tests and the phase handoff with actual evidence, and clearly record anything not verified.
+Follow Phase 3 in `docs/plan.md`; do not implement the UI yet. Add provider metadata lookup behind the protected metadata route and integrate automatic thumbnail refresh into `BoardService.SaveVideo`. Keep manual override semantics, ordering, and atomic revision checks intact. Do not fetch arbitrary bookmark or manual-thumbnail URLs. Add restricted provider networking and deterministic fixtures before live provider checks.
+
+## Backend implementation notes
+
+- `ApiBoundaryMiddleware` protects API handlers before body binding and emits credential-free Problem Details. `AccessKeyGuard` uses a process-wide failed-attempt window: after 30 failures, all protected requests receive 429 until the minute resets; successful requests do not consume the budget. Static files remain public. The limiter is in memory and per process, not distributed.
+- `BoardService` validates and builds immutable snapshots; `MongoBoardStore` stores a schema-version-1 BSON document with `_id: "board"`, Int64 revision, ordered arrays, and JSON-compatible string GUIDs/UTC timestamps. Do not change this format without a migration plan.
+- First read initializes revision zero safely under concurrency. Replacements match `_id` plus expected revision, use primary reads and acknowledged majority writes, and do not upsert mutations. Any uncertain storage result requires a reload before retrying.
+- Limits: 500-character titles/names, 4096-character credential-free HTTP(S) URLs, 10000 bookmarks, 12 MiB BSON board, 1 MiB Kestrel request bodies. Oversized boards return 413 without saving; transport-level oversized bodies may be rejected before a structured response.
+- Required JSON constructor fields must be present. A nullable `manualThumbnailUrl` still must be supplied; null explicitly clears it. Full contract shape remains unchanged.
+- Set `LASTSEEN2_TEST_MONGODB` only to a test-capable server/identity. Integration tests generate a unique `lastseen2_test_<guid>` database, preserve the URI authentication source, use `board_integration`, and drop only that generated database. Do not weaken isolation to accommodate production permissions.
+- The current remote credentials could not access an isolated database. Phase 2 integration verification used a temporary localhost-only MongoDB 8.2.0 process instead. Do not assume the remote application's write permissions were verified.

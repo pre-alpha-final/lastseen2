@@ -5,6 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="MongoDB.Driver" Version="3.12.0" />
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Server" Version="10.0.12" />
     <ProjectReference Include="../LastSeen2/LastSeen2.csproj" />
     <ProjectReference Include="../LastSeen2.Contracts/LastSeen2.Contracts.csproj" />
