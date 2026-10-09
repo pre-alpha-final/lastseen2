@@ -1,3 +1,9 @@
 <Solution>
   <Project Path="LastSeen2/LastSeen2.csproj" />
+  <Project Path="LastSeen2.Contracts/LastSeen2.Contracts.csproj" />
+  <Project Path="LastSeen2.Server/LastSeen2.Server.csproj" />
+  <Folder Name="/Tests/">
+    <Project Path="../tests/LastSeen2.Contracts.Tests/LastSeen2.Contracts.Tests.csproj" />
+    <Project Path="../tests/LastSeen2.Server.Tests/LastSeen2.Server.Tests.csproj" />
+  </Folder>
 </Solution>

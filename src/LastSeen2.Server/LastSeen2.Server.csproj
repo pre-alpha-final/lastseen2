@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Server" Version="10.0.12" />
+    <ProjectReference Include="../LastSeen2/LastSeen2.csproj" />
+    <ProjectReference Include="../LastSeen2.Contracts/LastSeen2.Contracts.csproj" />
+  </ItemGroup>
+</Project>

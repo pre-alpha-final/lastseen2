@@ -65,7 +65,7 @@ Each handoff must record: status, delivered behavior, changed contracts/configur
 - Videos contain identifiers, title, URL, automatic/manual thumbnail values, and timestamps. Channels contain identifiers, name, URL, group, and timestamps. Array order determines display order.
 - Define these API capabilities: authenticate/check key, retrieve board, create/update/delete videos and channels, reorder videos, move/reorder channels, and retrieve metadata.
 - Mutations carry the expected board revision and return the updated snapshot. Use consistent validation and error responses.
-- Add server configuration placeholders for MongoDB connection string, database, collection, and access key. Support normal environment overrides.
+- Add server configuration placeholders for MongoDB connection string, collection, and access key. Support normal environment overrides.
 - Establish xUnit test projects and document build, run, and test commands.
 
 **Acceptance**
@@ -85,7 +85,7 @@ Each handoff must record: status, delivered behavior, changed contracts/configur
 
 - Implement shared-key validation for all content and metadata endpoints; leave static assets public.
 - Reject missing/incorrect keys, avoid logging credentials, and rate-limit failed authentication attempts.
-- Implement MongoDB board initialization and atomic revision-checked mutations.
+- Implement MongoDB board initialization and atomic revision-checked mutations. Read the database name from the connection string using the MongoDB driver; reject a missing database name. Use the configured collection, which defaults to `lastseen2`.
 - Implement bookmark CRUD, video reorder, and channel move/reorder endpoints.
 - Validate required names/titles, HTTP(S) URLs, item existence, group membership, and reorder payload integrity.
 - Guard against oversized board documents with a clear error before MongoDB’s document limit is reached.
@@ -232,7 +232,7 @@ Each phase starts as **Not started**. Its owning agent updates the entry with:
 
 | Phase | Status | Delivered | Verification | Handoff |
 | --- | --- | --- | --- | --- |
-| 1 — Application foundation and contracts | Not started | — | — | — |
+| 1 — Application foundation and contracts | Complete | Host, contracts, configuration scaffolding, test projects, README | Build, 25 tests, release publish and HTTP smoke checks passed | See Phase 1 handoff below |
 | 2 — Authentication, persistence, and bookmark API | Not started | — | — | — |
 | 3 — Credential-free thumbnail metadata | Not started | — | — | — |
 | 4 — Dark interface and unlocking flow | Not started | — | — | — |
@@ -241,3 +241,21 @@ Each phase starts as **Not started**. Its owning agent updates the entry with:
 | 7 — Release verification and operating documentation | Not started | — | — | — |
 
 The app is complete only when all seven phases meet their acceptance criteria. Actual production deployment remains outside this plan.
+### Phase 1 handoff — Complete
+
+**Delivered:** Added `LastSeen2.Server` and dependency-free `LastSeen2.Contracts`, connected the existing client to Contracts, and added both xUnit projects to the solution. The server serves the existing Blazor UI and declares all planned API routes. The README documents request/response contracts, error semantics, environment variables, and build/run/test/publish commands.
+
+**Contracts:** Board snapshots contain a revision, ordered videos, and three ordered channel arrays. Mutations carry the expected revision and will return an updated board. Channel moves use a destination group and zero-based index after removing the moved item. Delete revisions are query parameters. Enums serialize as strings; identifiers are GUIDs. `ApiError` reads Problem Details without referencing ASP.NET Core. Full endpoint and payload details are in the README and Contracts source.
+
+**Configuration:** Server-only options bind `ConnectionStrings:LastSeen2`, `MongoDb:Collection`, and `Authentication:AccessKey`. The corresponding environment variables use double underscores. Credential placeholders are empty; the collection defaults to `lastseen2`. The database name is supplied in the connection string path; there is no separate database option. Phase 1 starts without a database or access key.
+
+**Verification:**
+
+- `dotnet build src/LastSeen2.slnx --nologo` passed with zero warnings/errors; subsequent test and publish runs rebuilt the final changes successfully.
+- `dotnet test src/LastSeen2.slnx --no-restore --nologo` passed: 3 contract tests and 22 server tests, zero failures/skips.
+- `dotnet publish src/LastSeen2.Server -c Release -o artifacts/phase1-publish --nologo` passed.
+- Ran the published application in Production on `http://127.0.0.1:5187`. Root and client fallback returned HTML; JavaScript bootstrap/runtime files, native WASM, and CSS returned 200 with appropriate content types. Declared API returned 501 Problem Details; unknown API and server `appsettings.json` requests returned 404.
+- The publish check caught unresolved standalone HTML fingerprint placeholders. The final hosted client uses stable framework filenames and no HTML placeholders. Development tests and production HTTP asset checks pass with this configuration.
+- `git diff --check` passed. Existing edited files retain CRLF; new text files also use CRLF. No line-ending-only changes.
+
+**Limitations and next agent:** Authentication, request validation, MongoDB operations, and metadata lookups are intentionally unimplemented. `FoundationApi` returns 501 for declared routes; it never claims a key is valid or data was saved. Phase 2 must replace the relevant stubs, protect all content/metadata routes, validate required configuration and requests, and implement atomic revision-checked persistence. Metadata remains a stub until Phase 3. Preserve the API boundary that prevents unknown `/api` routes from returning the frontend shell. Replace scaffold-specific 501 test expectations as real handlers arrive. Browser interaction/visual tests and live MongoDB/provider tests were not run in Phase 1; the original starter UI remains.
