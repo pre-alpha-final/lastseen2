@@ -10,7 +10,10 @@
         <ul class="channel-list">
             @foreach (var channel in Channels)
             {
-                <li @key="channel.Id"><a href="@channel.Url" target="_blank" rel="noopener noreferrer">@channel.Name<span class="visually-hidden"> (opens in a new tab)</span></a><span aria-hidden="true" class="external-mark">↗</span></li>
+                <li @key="channel.Id"><ProviderIcon Url="@channel.Url" /><a href="@channel.Url" target="_blank" rel="noopener noreferrer">@channel.Name<span class="visually-hidden"> (opens in a new tab)</span></a><div class="item-actions">
+                    <button class="btn btn-outline-light" aria-label="@($"Edit channel: {channel.Name}")" @onclick="() => OnEdit.InvokeAsync(channel)">✎</button>
+                    <button class="btn delete-button" aria-label="@($"Delete channel: {channel.Name}")" @onclick="() => OnDelete.InvokeAsync(channel)">×</button>
+                </div></li>
             }
         </ul>
     }
@@ -18,6 +21,8 @@
 @code {
     [Parameter] public ChannelGroup Group { get; set; }
     [Parameter, EditorRequired] public ChannelBookmark[] Channels { get; set; } = [];
+    [Parameter] public EventCallback<ChannelBookmark> OnEdit { get; set; }
+    [Parameter] public EventCallback<ChannelBookmark> OnDelete { get; set; }
     private string HeadingId => $"group-{Group}";
     private string Symbol => Group switch { ChannelGroup.Frequent => "☆", ChannelGroup.Infrequent => "◷", _ => "▱" };
 }

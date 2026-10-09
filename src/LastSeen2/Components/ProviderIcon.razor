@@ -1,0 +1,20 @@
+<span class="provider-icon @Provider.ToLowerInvariant()" role="img" aria-label="@Provider" title="@Provider">
+    @if (Provider == "YouTube")
+    {
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="1" y="4" width="22" height="16" rx="5" fill="currentColor" /><path d="m10 8 6 4-6 4Z" fill="#141b23" /></svg>
+    }
+    else if (Provider == "Twitch")
+    {
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 2h18v13l-6 5h-5l-4 3v-3H2V6Z" /><path d="M10 6v7m6-7v7" /></svg>
+    }
+    else { <span aria-hidden="true">↗</span> }
+</span>
+@code {
+    [Parameter] public string Url { get; set; } = "";
+    private string Provider => Uri.TryCreate(Url, UriKind.Absolute, out var uri) ? uri.Host.ToLowerInvariant() switch
+    {
+        "youtube.com" or "www.youtube.com" or "m.youtube.com" or "youtu.be" or "www.youtu.be" => "YouTube",
+        "twitch.tv" or "www.twitch.tv" or "m.twitch.tv" or "clips.twitch.tv" => "Twitch",
+        _ => "Website"
+    } : "Website";
+}

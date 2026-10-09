@@ -48,28 +48,39 @@
         {
             <div class="board-grid" aria-busy="@busy.ToString().ToLowerInvariant()">
                 <section class="panel videos-panel" aria-labelledby="videos-heading">
-                    <div class="section-heading"><h2 id="videos-heading"><svg class="section-symbol" viewBox="0 0 24 28" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 2h18v24l-9-7-9 7Z" /></svg> Saved Videos</h2><span class="count" aria-label="@($"{board.Videos.Length} saved videos")">@board.Videos.Length</span></div>
+                    <div class="section-heading"><h2 id="videos-heading"><svg class="section-symbol" viewBox="0 0 24 28" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 2h18v24l-9-7-9 7Z" /></svg> Saved Videos</h2><div class="heading-actions"><span class="count" aria-label="@($"{board.Videos.Length} saved videos")">@board.Videos.Length</span><button class="btn btn-primary" @onclick="() => OpenVideo(null)">+ Add Video</button></div></div>
                     @if (board.Videos.Length == 0)
                     {
                         <div class="empty-videos"><span aria-hidden="true">▷</span><p>No saved videos yet.</p></div>
                     }
                     else
                     {
-                        <ul class="video-list">@foreach (var video in board.Videos) { <VideoRow @key="video.Id" Video="video" /> }</ul>
+                        <ul class="video-list">@foreach (var video in board.Videos) { <VideoRow @key="video.Id" Video="video" OnEdit="v => OpenVideo(v)" OnDelete="v => OpenVideo(v, true)" /> }</ul>
                     }
                 </section>
                 <section class="panel channels-panel" aria-labelledby="channels-heading">
-                    <div class="section-heading"><h2 id="channels-heading"><span class="section-symbol" aria-hidden="true">☷</span> Channels</h2><span class="count" aria-label="@($"{ChannelCount} channels")">@ChannelCount</span></div>
-                    <ChannelSection Group="ChannelGroup.Frequent" Channels="board.Channels.Frequent" />
-                    <ChannelSection Group="ChannelGroup.Infrequent" Channels="board.Channels.Infrequent" />
-                    <ChannelSection Group="ChannelGroup.Archived" Channels="board.Channels.Archived" />
+                    <div class="section-heading"><h2 id="channels-heading"><span class="section-symbol" aria-hidden="true">☷</span> Channels</h2><div class="heading-actions"><span class="count" aria-label="@($"{ChannelCount} channels")">@ChannelCount</span><button class="btn btn-primary" @onclick="() => OpenChannel(null)">+ Add Channel</button></div></div>
+                    <ChannelSection Group="ChannelGroup.Frequent" OnEdit="c => OpenChannel(c)" OnDelete="c => OpenChannel(c, true)" Channels="board.Channels.Frequent" />
+                    <ChannelSection Group="ChannelGroup.Infrequent" OnEdit="c => OpenChannel(c)" OnDelete="c => OpenChannel(c, true)" Channels="board.Channels.Infrequent" />
+                    <ChannelSection Group="ChannelGroup.Archived" OnEdit="c => OpenChannel(c)" OnDelete="c => OpenChannel(c, true)" Channels="board.Channels.Archived" />
                 </section>
             </div>
         }
     }
+    @if (dialogOpen && board is not null && unlocked)
+    {
+        <BookmarkDialog IsVideo="editingVideo" Delete="deleting" Video="selectedVideo" Channel="selectedChannel" Revision="board.Revision" OnBoard="ApplyBoard" OnClose="CloseDialog" OnUnauthorized="HandleErrorAsync" />
+    }
 </main>
 
 @code {
+    private bool dialogOpen, editingVideo, deleting;
+    private VideoBookmark? selectedVideo;
+    private ChannelBookmark? selectedChannel;
+    private void OpenVideo(VideoBookmark? value, bool delete = false) { selectedVideo = value; selectedChannel = null; editingVideo = true; deleting = delete; dialogOpen = true; }
+    private void OpenChannel(ChannelBookmark? value, bool delete = false) { selectedChannel = value; selectedVideo = null; editingVideo = false; deleting = delete; dialogOpen = true; }
+    private void CloseDialog() => dialogOpen = false;
+    private void ApplyBoard(BoardSnapshot value) { board = value; error = null; }
     private string enteredKey = "";
     private string? error;
     private BoardSnapshot? board;
@@ -152,6 +163,7 @@
     private async Task LockAsync()
     {
         generation++;
+        dialogOpen = false;
         unlocked = false;
         board = null;
         enteredKey = "";

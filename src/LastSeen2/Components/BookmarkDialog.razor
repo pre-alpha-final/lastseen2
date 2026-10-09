@@ -1,0 +1,194 @@
+@using LastSeen2.Contracts
+@using LastSeen2.Services
+@inject BoardApiClient Api
+@inject AccessSession Session
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<dialog @ref="dialog" class="bookmark-dialog panel" aria-labelledby="dialog-heading" aria-describedby="dialog-help">
+    <h2 id="dialog-heading">@Heading</h2>
+    <p id="dialog-help" class="help-text">@(Delete ? $"Delete “{name}”? This cannot be undone." : IsVideo ? "Saved videos move to the top after saving." : "Changing groups moves the channel to the top of that group.")</p>
+    <form @onsubmit="SaveAsync" @onsubmit:preventDefault>
+        <fieldset disabled="@saving">
+            @if (!Delete)
+            {
+                <label for="bookmark-url">URL</label>
+                <input id="bookmark-url" class="form-control" type="url" required maxlength="4096" value="@url" @oninput="UrlChanged" />
+                <label for="bookmark-name">@(IsVideo ? "Title" : "Name")</label>
+                <input id="bookmark-name" class="form-control" required maxlength="500" value="@name" @oninput="NameChanged" />
+                @if (IsVideo)
+                {
+                    <label for="thumbnail-mode">Thumbnail mode</label>
+                    <select id="thumbnail-mode" class="form-select" @bind="mode" @bind:after="ResetPreview">
+                        <option value="Automatic">Automatic</option><option value="Manual">Manual</option>
+                    </select>
+                    <label for="manual-thumbnail">Manual thumbnail URL</label>
+                    <input id="manual-thumbnail" class="form-control" type="url" maxlength="4096" required="@(mode == ThumbnailMode.Manual)" @bind="manual" @bind:event="oninput" @bind:after="ResetPreview" aria-describedby="manual-help" />
+                    <p id="manual-help" class="help-text">Kept until cleared, including in Automatic mode.</p>
+                    <button class="btn btn-outline-light" type="button" @onclick="ClearManual">Clear manual thumbnail</button>
+                    <div class="preview-line"><img src="@Preview" alt="Thumbnail preview" width="144" height="81" referrerpolicy="no-referrer" @onerror="() => previewFailed = true" />
+                        <button class="btn btn-outline-light" type="button" disabled="@(looking || !ValidUrl(url))" @onclick="LookupAsync">@(looking ? "Looking up…" : "Look up metadata")</button>
+                    </div>
+                    <p class="help-text" role="status">@metadataMessage</p>
+                }
+                else
+                {
+                    <label for="channel-group">Group</label>
+                    <select id="channel-group" class="form-select" @bind="group">
+                        @foreach (var value in Enum.GetValues<ChannelGroup>()) { <option value="@value">@value</option> }
+                    </select>
+                }
+            }
+            @if (error is not null) { <p class="error-message" role="alert">@error</p> }
+            @if (review)
+            {
+                <button class="btn btn-outline-light" type="button" @onclick="ReloadAsync">Reload and review</button>
+            }
+            @if (reviewed is not null) { <p class="review-note" role="status">@reviewed</p> }
+            <div class="dialog-actions">
+                <button class="btn btn-outline-light" type="button" @onclick="CancelAsync" autofocus="@Delete">Cancel</button>
+                <button class="btn @(Delete ? "delete-button" : "btn-primary")" type="submit" disabled="@(review || missing)">@(saving ? "Saving…" : Delete ? "Delete bookmark" : "Save")</button>
+            </div>
+        </fieldset>
+    </form>
+</dialog>
+
+@code {
+    [Parameter] public bool IsVideo { get; set; }
+    [Parameter] public bool Delete { get; set; }
+    [Parameter] public VideoBookmark? Video { get; set; }
+    [Parameter] public ChannelBookmark? Channel { get; set; }
+    [Parameter] public long Revision { get; set; }
+    [Parameter] public EventCallback<BoardSnapshot> OnBoard { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+    [Parameter] public EventCallback<ApiClientException> OnUnauthorized { get; set; }
+    private ElementReference dialog;
+    private IJSObjectReference? module, handle;
+    private DotNetObjectReference<BookmarkDialog>? receiver;
+    private string name = "", url = "", manual = "";
+    private string? automatic, metadataMessage, error, reviewed;
+    private ThumbnailMode mode;
+    private ChannelGroup group = ChannelGroup.Frequent;
+    private long revision;
+    private bool saving, looking, touchedName, previewFailed, review, missing, disposed;
+    private int lookupVersion;
+    private Guid? Id => IsVideo ? Video?.Id : Channel?.Id;
+    private string Heading => $"{(Delete ? "Delete" : Id is null ? "Add" : "Edit")} {(IsVideo ? "video" : "channel")}";
+    private string Preview => previewFailed ? "/images/video-placeholder.svg" : (mode == ThumbnailMode.Manual ? (ValidUrl(manual) ? manual : null) : automatic) ?? "/images/video-placeholder.svg";
+    protected override void OnInitialized()
+    {
+        revision = Revision;
+        name = Video?.Title ?? Channel?.Name ?? "";
+        url = Video?.Url ?? Channel?.Url ?? "";
+        manual = Video?.ManualThumbnailUrl ?? "";
+        automatic = Video?.AutomaticThumbnailUrl;
+        mode = Video?.ThumbnailMode ?? ThumbnailMode.Automatic;
+        group = Channel?.Group ?? ChannelGroup.Frequent;
+        touchedName = Id is not null;
+    }
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        module = await JS.InvokeAsync<IJSObjectReference>("import", "/dialog.js");
+        if (disposed) return;
+        receiver = DotNetObjectReference.Create(this);
+        handle = await module.InvokeAsync<IJSObjectReference>("open", dialog, receiver);
+    }
+    private static bool ValidUrl(string value) => Uri.TryCreate(value.Trim(), UriKind.Absolute, out var uri)
+        && uri.Scheme is "http" or "https" && string.IsNullOrEmpty(uri.UserInfo);
+    private void NameChanged(ChangeEventArgs e) { name = e.Value?.ToString() ?? ""; touchedName = true; }
+    private void UrlChanged(ChangeEventArgs e)
+    {
+        url = e.Value?.ToString() ?? "";
+        lookupVersion++;
+        looking = false;
+        automatic = url.Trim() == Video?.Url ? Video.AutomaticThumbnailUrl : null;
+        metadataMessage = null;
+        previewFailed = false;
+    }
+    private void ResetPreview() => previewFailed = false;
+    private void ClearManual() { manual = ""; ResetPreview(); }
+    private async Task LookupAsync()
+    {
+        if (looking || saving || Session.Key is null) return;
+        var version = ++lookupVersion;
+        looking = true;
+        metadataMessage = null;
+        try
+        {
+            var result = await Api.MetadataAsync(Session.Key, url.Trim());
+            if (disposed || version != lookupVersion) return;
+            if (!touchedName && result.Title is not null) name = result.Title;
+            if (result.ThumbnailUrl is not null) { automatic = result.ThumbnailUrl; ResetPreview(); }
+            metadataMessage = result.Status == MetadataStatus.Available ? "Available suggestions loaded. Review before saving." : "No metadata available. Enter a title; you can still save.";
+        }
+        catch (ApiClientException ex)
+        {
+            if (disposed) return;
+            if (ex.Unauthorized) await OnUnauthorized.InvokeAsync(ex);
+            else if (version == lookupVersion) metadataMessage = "Metadata lookup failed. You can still save with your own title and optional thumbnail.";
+        }
+        finally { if (version == lookupVersion) looking = false; }
+    }
+    private async Task SaveAsync()
+    {
+        if (saving || review || missing || Session.Key is null) return;
+        if (!Delete && (string.IsNullOrWhiteSpace(name) || !ValidUrl(url) || (IsVideo && !string.IsNullOrWhiteSpace(manual) && !ValidUrl(manual)) || (IsVideo && mode == ThumbnailMode.Manual && !ValidUrl(manual))))
+        { error = "Enter a title/name and valid HTTP(S) URLs without credentials."; return; }
+        saving = true;
+        lookupVersion++;
+        looking = false;
+        error = null;
+        try
+        {
+            var result = Delete ? await Api.DeleteAsync(Session.Key, IsVideo, Id!.Value, revision)
+                : IsVideo ? await Api.SaveVideoAsync(Session.Key, Id, new(revision, name.Trim(), url.Trim(), mode, string.IsNullOrWhiteSpace(manual) ? null : manual.Trim()))
+                : await Api.SaveChannelAsync(Session.Key, Id, new(revision, name.Trim(), url.Trim(), group));
+            if (disposed) return;
+            await OnBoard.InvokeAsync(result);
+            await OnClose.InvokeAsync();
+        }
+        catch (ApiClientException ex) { await FailureAsync(ex); }
+        finally { saving = false; }
+    }
+    private async Task FailureAsync(ApiClientException ex)
+    {
+        if (disposed) return;
+        if (ex.Unauthorized) await OnUnauthorized.InvokeAsync(ex);
+        else { error = ex.Message; review = ex.RequiresReview; }
+    }
+    private async Task ReloadAsync()
+    {
+        if (saving || Session.Key is null) return;
+        saving = true;
+        try
+        {
+            var result = await Api.GetBoardAsync(Session.Key);
+            if (disposed) return;
+            await OnBoard.InvokeAsync(result);
+            revision = result.Revision;
+            var currentVideo = result.Videos.FirstOrDefault(x => x.Id == Id);
+            var currentChannel = result.Channels.Frequent.Concat(result.Channels.Infrequent).Concat(result.Channels.Archived).FirstOrDefault(x => x.Id == Id);
+            missing = Id is not null && currentVideo is null && currentChannel is null;
+            reviewed = missing ? "This bookmark has been deleted. Cancel to return to the refreshed board."
+                : Id is null ? "Board reloaded. Your draft is kept. Check the board for a previous successful save before adding again."
+                : $"Latest saved values: {currentVideo?.Title ?? currentChannel?.Name} — {currentVideo?.Url ?? currentChannel?.Url}. "
+                    + (IsVideo ? $"Thumbnail: {currentVideo!.ThumbnailMode}; manual: {currentVideo.ManualThumbnailUrl ?? "none"}. " : $"Group: {currentChannel!.Group}. ")
+                    + "Your draft is kept. Review it before submitting again, or cancel to keep the saved version.";
+            review = false;
+            error = null;
+        }
+        catch (ApiClientException ex) { await FailureAsync(ex); review = true; }
+        finally { saving = false; }
+    }
+    [JSInvokable] public Task CancelFromKeyboard() => CancelAsync();
+    private Task CancelAsync() => saving ? Task.CompletedTask : OnClose.InvokeAsync();
+    public async ValueTask DisposeAsync()
+    {
+        disposed = true;
+        lookupVersion++;
+        if (handle is not null) { await handle.InvokeVoidAsync("dispose"); await handle.DisposeAsync(); }
+        receiver?.Dispose();
+        if (module is not null) await module.DisposeAsync();
+    }
+}

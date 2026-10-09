@@ -77,3 +77,27 @@ h2 { font-size: 1.85rem; margin: 0; }
     h2 { font-size: 1.6rem; }
     .unlock-panel { padding: 22px; }
 }
+
+.video-copy { flex: 1; }
+.item-actions { display: flex; gap: 6px; margin-left: auto; flex-shrink: 0; }
+.item-actions .btn { min-width: 36px; padding: 4px 9px; }
+.delete-button { color: #ffb8bf; border-color: #d77c85; background: #35232b; }
+.delete-button:hover { background: #60303b; color: #fff; }
+.provider-icon { display: inline-flex; justify-content: center; align-items: center; width: 24px; flex-shrink: 0; color: #acd9f5; }
+.provider-icon.youtube { color: #ff8989; }
+.provider-icon.twitch { color: #c69aff; }
+.bookmark-dialog { color: #f0f2f5; width: min(560px, calc(100% - 24px)); max-height: calc(100dvh - 32px); padding: 24px; overflow-y: auto; }
+.bookmark-dialog::backdrop { background: #05090dcc; }
+.bookmark-dialog label { display: block; margin: 16px 0 6px; }
+.bookmark-dialog .form-select { background-color: #0e141b; color: #f0f2f5; border-color: #758595; min-height: 48px; }
+.bookmark-dialog fieldset { min-width: 0; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px; }
+.preview-line { display: flex; align-items: center; gap: 16px; margin-top: 18px; }
+.preview-line img { object-fit: cover; border-radius: 5px; }
+.review-note, #dialog-help { overflow-wrap: anywhere; }
+.section-heading { flex-wrap: wrap; }
+@media (max-width: 1100px) { .video-row .item-actions { flex-direction: column; } .channel-list li { gap: 6px; padding: 8px; } }
+@media (max-width: 420px) { .video-row { flex-wrap: wrap; } .video-copy { flex-basis: calc(100% - 100px); } .video-row .item-actions { flex-direction: row; } .bookmark-dialog { padding: 16px; } .preview-line { flex-wrap: wrap; } }
+
+.heading-actions { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+.provider-icon svg { width: 22px; height: 22px; }
