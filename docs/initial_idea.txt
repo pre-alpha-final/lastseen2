@@ -1,0 +1,15 @@
+LastSeen2 web app for quick and easy bookmarks.
+
+Two main screen sections:
+- left, main, ~2/3 of space, "Saved Videos" section, one per line link to yt/twitch/other
+- right, ~1/3 of space, "Channels" section, divided into "Frequent", "Infrequent" and "Archived", links to channels
+
+Main concepts:
+- "Saved Videos" is the main part of the app. Stores bookmarks, easy to add/edit. New adds/edits on top.
+- "Saved Videos" miniture is pulled automatically from yt/twitch on add/edit. Has manual option.
+- "Channels" is a lesser importance section. Just a step above notes. Adds on top, edits keep order.
+- dark mode only
+- uses https://bootswatch.com/sketchy/ for UI
+- items in each section are drag n drop
+- site is single user, only auth is a key/password entered at launch - used in communication with backend
+- uses single mongodb collection for all content, conn string in appsettings, overwritten by env in local/prod
