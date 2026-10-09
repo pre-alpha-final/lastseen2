@@ -194,7 +194,8 @@ public sealed class ApiTests
         clock.Now = clock.Now.AddMinutes(1);
         Assert.Equal(HttpStatusCode.NoContent, (await valid.PostAsync(ApiRoutes.CheckKey, null)).StatusCode);
         var metadata = await valid.PostAsJsonAsync(ApiRoutes.Metadata, new MetadataRequest("https://youtube.com/watch?v=test"));
-        Assert.Equal(HttpStatusCode.NotImplemented, metadata.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, metadata.StatusCode);
+        Assert.Equal(MetadataStatus.Unsupported, (await metadata.Content.ReadFromJsonAsync<MetadataResult>())!.Status);
     }
 
     [Fact]

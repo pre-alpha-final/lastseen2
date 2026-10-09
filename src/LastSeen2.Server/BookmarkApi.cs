@@ -17,10 +17,7 @@ public static class BookmarkApi
         api.MapPut("/channels/{id:guid}", (Guid id, SaveChannelRequest request, BoardService service, CancellationToken ct) => service.SaveChannel(id, request, ct));
         api.MapDelete("/channels/{id:guid}", (Guid id, long expectedRevision, BoardService service, CancellationToken ct) => service.DeleteChannel(id, expectedRevision, ct));
         api.MapPut("/channels/{id:guid}/move", (Guid id, MoveChannelRequest request, BoardService service, CancellationToken ct) => service.MoveChannel(id, request, ct));
-        api.MapPost("/metadata", (MetadataRequest request) =>
-        {
-            BoardService.Url(request.Url, "url");
-            return new ApiFailure(501, "not_implemented", "Metadata lookup is deferred to Phase 3").Result;
-        });
+        api.MapPost("/metadata", (MetadataRequest request, IMetadataService metadata, CancellationToken ct) =>
+            metadata.LookupAsync(request.Url, ct));
     }
 }

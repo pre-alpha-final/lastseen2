@@ -2,17 +2,20 @@ using LastSeen2.Contracts;
 
 namespace LastSeen2.Server;
 
-public sealed class BoardService(IBoardStore store, TimeProvider clock)
+public sealed class BoardService(IBoardStore store, TimeProvider clock, IMetadataService metadata)
 {
     public const int MaxItems = 10000;
     public Task<BoardSnapshot> ReadAsync(CancellationToken ct) => store.ReadAsync(ct);
 
-    private async Task<BoardSnapshot> Mutate(long revision, Func<BoardSnapshot, BoardSnapshot> change, CancellationToken ct)
+    private Task<BoardSnapshot> Mutate(long revision, Func<BoardSnapshot, BoardSnapshot> change, CancellationToken ct) =>
+        MutateAsync(revision, board => Task.FromResult(change(board)), ct);
+
+    private async Task<BoardSnapshot> MutateAsync(long revision, Func<BoardSnapshot, Task<BoardSnapshot>> change, CancellationToken ct)
     {
         if (revision < 0 || revision == long.MaxValue) throw ApiFailure.Invalid("expectedRevision", "Revision must be nonnegative and incrementable");
         var current = await store.ReadAsync(ct);
         if (current.Revision != revision) throw ApiFailure.Conflict();
-        var updated = change(current) with { Revision = revision + 1 };
+        var updated = (await change(current)) with { Revision = revision + 1 };
         if (updated.Videos.Length + AllChannels(updated).Count() > MaxItems)
             throw new ApiFailure(413, "board_too_large", "Board supports at most 10000 bookmarks");
         MongoBoardStore.Encode(updated); // Same BSON size guard for every store implementation.
@@ -50,12 +53,19 @@ public sealed class BoardService(IBoardStore store, TimeProvider clock)
         var manual = request.ManualThumbnailUrl is null ? null : Url(request.ManualThumbnailUrl, "manualThumbnailUrl");
         if (request.ThumbnailMode == ThumbnailMode.Manual && manual is null)
             throw ApiFailure.Invalid("manualThumbnailUrl", "Manual mode requires a thumbnail URL");
-        return Mutate(request.ExpectedRevision, board =>
+        return MutateAsync(request.ExpectedRevision, async board =>
         {
             var old = id is null ? null : board.Videos.FirstOrDefault(v => v.Id == id) ?? throw ApiFailure.Missing();
+            var automatic = old?.Url == url ? old.AutomaticThumbnailUrl : null;
+            if (request.ThumbnailMode == ThumbnailMode.Automatic)
+            {
+                var result = await metadata.LookupAsync(url, ct);
+                automatic = result.ThumbnailUrl ?? automatic;
+            }
+            ct.ThrowIfCancellationRequested();
             var now = clock.GetUtcNow();
             var video = new VideoBookmark(id ?? Guid.NewGuid(), title, url, request.ThumbnailMode,
-                old?.Url == url ? old.AutomaticThumbnailUrl : null, manual, old?.CreatedAt ?? now, now);
+                automatic, manual, old?.CreatedAt ?? now, now);
             return board with { Videos = new[] { video }.Concat(board.Videos.Where(v => v.Id != id)).ToArray() };
         }, ct);
     }

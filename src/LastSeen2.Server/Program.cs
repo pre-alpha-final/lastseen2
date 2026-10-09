@@ -18,6 +18,11 @@ builder.Services.AddOptions<AccessKeyOptions>().Bind(builder.Configuration.GetSe
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<AccessKeyGuard>();
 builder.Services.AddSingleton<IBoardStore, MongoBoardStore>();
+builder.Services.AddSingleton<ProviderHttpClient>(_ => new(new HttpClient(ProviderHttpClient.CreateHandler())
+{
+    Timeout = Timeout.InfiniteTimeSpan
+}));
+builder.Services.AddSingleton<IMetadataService, MetadataService>();
 builder.Services.AddSingleton<BoardService>();
 
 var app = builder.Build();

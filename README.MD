@@ -4,7 +4,7 @@ A single-user video and channel bookmark app. The implementation roadmap and seq
 
 ## Current status
 
-Phase 2 implements shared-key authentication, MongoDB persistence, revision-checked bookmark CRUD and ordering, and input validation. The original Blazor starter UI is retained until Phase 4. Metadata lookup remains a protected `501 application/problem+json` endpoint until Phase 3.
+Phases 1–3 implement the protected MongoDB bookmark API and credential-free provider metadata. Automatic video saves refresh thumbnails without depending on provider availability. The original Blazor starter UI is retained until Phase 4.
 
 ## Projects
 
@@ -72,7 +72,7 @@ JSON uses camelCase property names, string enum names (`Frequent`, `Infrequent`,
 | PUT | `/api/channels/{id}/move` | `MoveChannelRequest` | 200 `BoardSnapshot` |
 | POST | `/api/metadata` | `MetadataRequest` | 200 `MetadataResult` |
 
-All bookmark handlers are implemented. Metadata alone returns 501 after authentication and URL validation. Unknown `/api` routes return a 404 problem response, never the frontend HTML; unknown paths within video/channel resources require a valid key first. Other extensionless routes fall back to the client shell.
+All bookmark handlers and metadata lookup are implemented. Metadata returns a nonfatal lookup result after authentication and URL validation. Unknown `/api` routes return a 404 problem response, never the frontend HTML; unknown paths within video/channel resources require a valid key first. Other extensionless routes fall back to the client shell.
 
 ### Board and mutation semantics
 
@@ -101,9 +101,25 @@ The server enforces nonblank titles/names (up to 500 characters), absolute HTTP(
 | 429 | `rate_limited` | Authentication attempt limit reached |
 | 500 | `internal_error` | Unexpected server failure |
 | 503 | `storage_unavailable` | Database unavailable |
-| 501 | `not_implemented` | Metadata lookup deferred to Phase 3 |
 
 Authentication uses a constant-time comparison of SHA-256 key digests. The first 30 invalid-key requests per process-wide one-minute window return 401; all subsequent protected requests return 429 with `Retry-After` until the window resets, before comparing keys. Successful authentication does not consume the budget. Static files remain public. This limiter resets on server restart and is not shared across multiple instances. API responses set `Cache-Control: no-store`. API error logs omit exception text and credentials.
+
+## Credential-free metadata
+
+`POST /api/metadata` accepts `{ "url": "https://youtu.be/dQw4w9WgXcQ" }` and returns `status`, nullable `title`, nullable `thumbnailUrl`, and nullable `message`. `Available` means at least one usable suggestion; it does not guarantee a thumbnail. `Unavailable` covers provider errors, missing metadata, unsafe redirects/DNS, malformed responses, and timeouts. `Unsupported` means the link is outside supported forms; no request is sent. Invalid URL syntax still returns 400. No provider credentials or configuration are required.
+
+Supported links:
+
+- YouTube `youtube.com/watch?v=<11-character-id>` (also `www` and `m`), `youtu.be/<id>` (also `www`), and YouTube `/shorts/<id>`. HTTP links are accepted and fetched through canonical HTTPS oEmbed; tracking/time parameters are discarded.
+- Twitch `/videos/<numeric-id>` and `/<channel>/clip/<slug>` on `twitch.tv`, `www.twitch.tv`, or `m.twitch.tv`; `clips.twitch.tv/<slug>`. Public Open Graph/Twitter meta tags are best effort. Channel homepages are unsupported. Generic Twitch page titles and logo metadata are discarded.
+
+Automatic-mode video adds and edits attempt lookup after validation, revision, and item checks. They keep the user-supplied title. A usable automatic thumbnail replaces the old one; failure or a missing thumbnail retains the old value only when the trimmed bookmark URL is exactly unchanged. Changing the URL clears stale automatic metadata even in manual mode. Manual mode does not fetch; `manualThumbnailUrl` is retained by resubmitting it and explicitly cleared with null. Final persistence still checks the revision, including when another writer saves during lookup. Channels never trigger lookup.
+
+The dedicated client only fetches canonical provider URLs and up to three validated HTTPS redirects. It disables proxies, cookies, automatic redirects, and credentials. Each new connection resolves the provider hostname, rejects any private/local/special-use answer, and connects directly to a checked IP while preserving TLS hostname validation. Requests have a five-second total lookup deadline, three-second connection timeout, 32 KiB header limit, and 512 KiB decompressed body limit. Only JSON oEmbed and HTML meta suggestions are consumed; embed HTML is never returned. Thumbnail suggestions are limited to HTTPS provider image domains and are never fetched by the server. Arbitrary bookmarks and manual thumbnail URLs are never fetched.
+
+The local fallback asset is `/images/video-placeholder.svg`. Phase 4/5 UI should use it when the selected thumbnail is missing or fails to load, render titles as text, and never send the app key to image hosts. No bookmark UI has been implemented yet.
+
+Live checks on 2026-10-09: YouTube `dQw4w9WgXcQ` returned a title and thumbnail. Twitch VOD `2191576363` and clip `AwkwardHelplessSalamanderSwiftRage` returned generic shell titles/logo, so lookup correctly reported `Unavailable`. Availability varies with removal, region, bot restrictions, and provider markup; no authenticated Twitch API or JavaScript execution fallback is attempted. These observations are separate from deterministic fixture tests.
 
 ## Persistence and integration tests
 
@@ -143,7 +159,7 @@ $id = $board.videos[0].id
 $board = Invoke-RestMethod -Method Delete -Uri "$base/videos/${id}?expectedRevision=$($board.revision)" -Headers $headers
 ```
 
-Use the revision in each returned snapshot for the next mutation. A 409 means reload and review the latest board before resubmitting. Automatic thumbnails remain null until Phase 3 implements provider lookups; manual values are already supported.
+Use the revision in each returned snapshot for the next mutation. A 409 means reload and review the latest board before resubmitting. Automatic saves attempt provider thumbnail refresh; manual mode skips lookup.
 
 ## Agent workflow
 
