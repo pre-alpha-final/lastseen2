@@ -1,0 +1,23 @@
+@using LastSeen2.Contracts
+<section class="channel-group @Group.ToString().ToLowerInvariant()" aria-labelledby="@HeadingId">
+    <div class="group-heading"><h3 id="@HeadingId"><span aria-hidden="true">@Symbol</span> @Group</h3><span class="count" aria-label="@($"{Channels.Length} channels")">@Channels.Length</span></div>
+    @if (Channels.Length == 0)
+    {
+        <p class="group-empty">No @Group.ToString().ToLowerInvariant() channels yet.</p>
+    }
+    else
+    {
+        <ul class="channel-list">
+            @foreach (var channel in Channels)
+            {
+                <li @key="channel.Id"><a href="@channel.Url" target="_blank" rel="noopener noreferrer">@channel.Name<span class="visually-hidden"> (opens in a new tab)</span></a><span aria-hidden="true" class="external-mark">↗</span></li>
+            }
+        </ul>
+    }
+</section>
+@code {
+    [Parameter] public ChannelGroup Group { get; set; }
+    [Parameter, EditorRequired] public ChannelBookmark[] Channels { get; set; } = [];
+    private string HeadingId => $"group-{Group}";
+    private string Symbol => Group switch { ChannelGroup.Frequent => "☆", ChannelGroup.Infrequent => "◷", _ => "▱" };
+}

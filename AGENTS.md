@@ -25,10 +25,10 @@ Preserve each file's existing line endings exactly.
 
 ## Current implementation baseline
 
-At the end of Phase 3 on 2026-10-09:
+At the end of Phase 4 on 2026-10-09:
 
-- Plan creation and Phases 1–3 are complete. Phase 4 (dark interface and unlocking flow) is next; Phases 4–7 remain unimplemented.
-- The original Blazor starter UI remains. No bookmark management interface exists yet.
+- Plan creation and Phases 1–4 are complete. Phase 5 (bookmark editing) is next; Phases 5–7 remain unimplemented.
+- The dark Sketchy client displays a real read-only board with unlock, session restoration, Lock, loading, and retry states. Editing and ordering controls remain unimplemented.
 - `BookmarkApi` implements protected authentication checks, board reads, CRUD, and ordering. Metadata is protected and returns credential-free YouTube/Twitch suggestions with nonfatal fallback.
 - Unknown `/api` routes return 404 Problem Details, including paths containing dots. Keep them out of the SPA HTML fallback.
 - Startup requires a valid `ConnectionStrings:LastSeen2` URI with a database name, a valid collection, and `Authentication:AccessKey`. Board operations connect lazily; outages return safe 503 responses.
@@ -108,9 +108,9 @@ Publish the server, not just the client. `artifacts/` is ignored and suitable fo
 - Dark-only Bootswatch Sketchy UI follows the reference image: Saved Videos at roughly two-thirds width, Channels at one-third, stacked on mobile. Default new channels to Frequent. Include touch/keyboard alternatives to drag-and-drop.
 - Duplicate URLs are allowed; external links open in a new tab. Search, tags, watched-state tracking, uploads, embedded playback, import/export, provider credentials, and background synchronization are outside the current plan.
 
-## Phase 4 entry point
+## Phase 5 entry point
 
-Follow Phase 4 in `docs/plan.md` to build the dark interface and unlocking flow. Read the Phase 3 handoff and README metadata section first. The metadata result can be `Available` with only one suggestion. Use `/images/video-placeholder.svg` for absent or broken previews; render provider titles as text and never send the app key to thumbnail hosts. Automatic saves already refresh thumbnails with nonfatal fallback, and manual mode skips lookup. Preserve explicit-null manual clearing, ordering, and atomic revision checks. Never fetch arbitrary bookmark or manual-thumbnail URLs from the server.
+Follow Phase 5 in `docs/plan.md` to implement bookmark editing. Read the Phase 4 handoff and README metadata section first. Reuse `BoardApiClient`, `AccessSession`, `VideoRow`, and `ChannelSection`. Keep per-request same-origin key headers and browser redirect rejection; unauthorized responses must clear the session and board. Local Sketchy/fonts and dark overrides require no CDN. The shell browser regression script is `tests/browser/phase4.cjs`. The metadata result can be `Available` with only one suggestion. Use `/images/video-placeholder.svg` for absent or broken previews; render provider titles as text and never send the app key to thumbnail hosts. Automatic saves already refresh thumbnails with nonfatal fallback, and manual mode skips lookup. Preserve explicit-null manual clearing, ordering, and atomic revision checks. Never fetch arbitrary bookmark or manual-thumbnail URLs from the server.
 
 `ProviderHttpClient` uses a dedicated client with no proxy, cookies, credentials, or automatic redirects. Keep its host restrictions, checked-IP socket connections, time/size limits, and fixture-based security coverage. Twitch public metadata may be unavailable; generic shell titles/logo are intentionally rejected.
 

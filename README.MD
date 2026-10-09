@@ -4,7 +4,7 @@ A single-user video and channel bookmark app. The implementation roadmap and seq
 
 ## Current status
 
-Phases 1–3 implement the protected MongoDB bookmark API and credential-free provider metadata. Automatic video saves refresh thumbnails without depending on provider availability. The original Blazor starter UI is retained until Phase 4.
+Phases 1–4 are complete: protected MongoDB bookmark API, credential-free provider metadata, and a dark Sketchy interface with unlock, session restoration, Lock, and a read-only board. Bookmark editing and ordering controls follow in Phases 5 and 6.
 
 ## Projects
 
@@ -39,6 +39,18 @@ Pop-Location
 ```
 
 The `dotnet` command runs until stopped; execute `Pop-Location` afterward. Publishing the server includes the client's assets. The client uses stable framework filenames (`WasmFingerprintAssets=false`, `BlazorFingerprintBlazorJs=false`) so the hosted SPA fallback works in both development and published output; the standalone HTML fingerprint placeholders have been removed. Use HTTPS for production to protect the shared key in transit. The host follows the [ASP.NET Core Blazor WebAssembly hosting model](https://learn.microsoft.com/en-us/aspnet/core/blazor/host-and-deploy/webassembly/?view=aspnetcore-10.0).
+
+## Client interface and access
+
+Open the app and enter the configured shared access key. A successful `/api/auth/check` stores the entered key in `sessionStorage` under `lastseen2.accessKey`; reload revalidates it before loading the board. Lock clears the key and displayed board. A 401 returns to the unlock form and removes the saved key. Network, database, and throttling failures have separate messages and retry actions; temporary failures preserve a saved session. Browser session storage must be available.
+
+`Services/BoardApiClient.cs` sends the key per request only to fixed same-origin API routes. Browser redirects are rejected, browser credentials are omitted, and no default authorization headers are installed. External image requests use ordinary image elements with no referrer or app key. External bookmark links open a new tab with `noopener noreferrer`.
+
+The read-only board keeps server array order, uses a two-thirds/one-third desktop layout, and stacks videos above channels at 800px and below. Channel counts and green/amber/red group accents are paired with text labels. Refresh reloads the current board. Add/edit/delete and ordering controls are intentionally reserved for subsequent phases.
+
+Sketchy 5.3.8 and Fontsource 5.2.6 Neucha/Cabin Sketch fonts are pinned and served locally from `wwwroot/vendor`; licenses and provenance are included there. Dark overrides live in `wwwroot/css/app.css`. No frontend build tool or CDN access is needed to run the app.
+
+Phase 4 browser checks and screenshot reproduction: [tests/browser/README.md](tests/browser/README.md). Review [desktop](docs/screenshots/phase4-populated-desktop.png), [mobile](docs/screenshots/phase4-populated-mobile.png), and [unlock](docs/screenshots/phase4-unlock.png) screenshots. Screenshots use synthetic bookmarks, never application data.
 
 ## Server configuration
 
@@ -117,7 +129,7 @@ Automatic-mode video adds and edits attempt lookup after validation, revision, a
 
 The dedicated client only fetches canonical provider URLs and up to three validated HTTPS redirects. It disables proxies, cookies, automatic redirects, and credentials. Each new connection resolves the provider hostname, rejects any private/local/special-use answer, and connects directly to a checked IP while preserving TLS hostname validation. Requests have a five-second total lookup deadline, three-second connection timeout, 32 KiB header limit, and 512 KiB decompressed body limit. Only JSON oEmbed and HTML meta suggestions are consumed; embed HTML is never returned. Thumbnail suggestions are limited to HTTPS provider image domains and are never fetched by the server. Arbitrary bookmarks and manual thumbnail URLs are never fetched.
 
-The local fallback asset is `/images/video-placeholder.svg`. Phase 4/5 UI should use it when the selected thumbnail is missing or fails to load, render titles as text, and never send the app key to image hosts. No bookmark UI has been implemented yet.
+The local fallback asset is `/images/video-placeholder.svg`. The board uses it when the selected thumbnail is missing or fails to load, renders titles as text, and never sends the app key to image hosts.
 
 Live checks on 2026-10-09: YouTube `dQw4w9WgXcQ` returned a title and thumbnail. Twitch VOD `2191576363` and clip `AwkwardHelplessSalamanderSwiftRage` returned generic shell titles/logo, so lookup correctly reported `Unavailable`. Availability varies with removal, region, bot restrictions, and provider markup; no authenticated Twitch API or JavaScript execution fallback is attempted. These observations are separate from deterministic fixture tests.
 

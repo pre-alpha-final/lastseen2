@@ -1,7 +1,163 @@
-﻿@page "/"
+@page "/"
+@using LastSeen2.Contracts
+@using LastSeen2.Components
+@using LastSeen2.Services
+@inject BoardApiClient Api
+@inject AccessSession Session
 
-<PageTitle>Home</PageTitle>
+<PageTitle>LastSeen2</PageTitle>
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="app-header">
+    <a class="brand" href="/" aria-label="LastSeen2 home">lastseen<span>2</span></a>
+    @if (unlocked || Session.Key is not null)
+    {
+        <button class="btn btn-outline-light" @onclick="LockAsync">Lock</button>
+    }
+</header>
+<main id="main" tabindex="-1">
+    @if (restoring)
+    {
+        <div class="state-panel" role="status">Restoring your session…</div>
+    }
+    else if (!unlocked)
+    {
+        <section class="unlock-panel panel" aria-labelledby="unlock-heading">
+            <h1 id="unlock-heading">Unlock board</h1>
+            <form @onsubmit="UnlockAsync" @onsubmit:preventDefault>
+                <label for="access-key" class="form-label">Access key</label>
+                <input id="access-key" class="form-control" type="password" autocomplete="current-password" required @bind="enteredKey" disabled="@busy" aria-describedby="key-help unlock-error" />
+                <p id="key-help" class="help-text">Kept only for this browser tab’s session. Use Lock when you’re done.</p>
+                @if (error is not null) { <p id="unlock-error" class="error-message" role="alert">@error</p> }
+                <button class="btn btn-primary unlock-button" type="submit" disabled="@busy">@(busy ? "Unlocking…" : "Unlock board")</button>
+                @if (Session.Key is not null)
+                {
+                    <button class="btn btn-outline-light retry-session" type="button" @onclick="RestoreAsync" disabled="@busy">Retry saved session</button>
+                }
+            </form>
+        </section>
+    }
+    else
+    {
+        <div class="board-toolbar"><button class="btn btn-outline-light" @onclick="LoadBoardAsync" disabled="@busy">Refresh</button></div>
+        @if (error is not null)
+        {
+            <div class="state-panel error-message" role="alert"><p>@error</p><button class="btn btn-primary" @onclick="LoadBoardAsync" disabled="@busy">Retry loading board</button></div>
+        }
+        @if (busy) { <p class="loading-note" role="status">Loading bookmarks…</p> }
+        @if (board is not null)
+        {
+            <div class="board-grid" aria-busy="@busy.ToString().ToLowerInvariant()">
+                <section class="panel videos-panel" aria-labelledby="videos-heading">
+                    <div class="section-heading"><h2 id="videos-heading"><svg class="section-symbol" viewBox="0 0 24 28" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 2h18v24l-9-7-9 7Z" /></svg> Saved Videos</h2><span class="count" aria-label="@($"{board.Videos.Length} saved videos")">@board.Videos.Length</span></div>
+                    @if (board.Videos.Length == 0)
+                    {
+                        <div class="empty-videos"><span aria-hidden="true">▷</span><p>No saved videos yet.</p></div>
+                    }
+                    else
+                    {
+                        <ul class="video-list">@foreach (var video in board.Videos) { <VideoRow @key="video.Id" Video="video" /> }</ul>
+                    }
+                </section>
+                <section class="panel channels-panel" aria-labelledby="channels-heading">
+                    <div class="section-heading"><h2 id="channels-heading"><span class="section-symbol" aria-hidden="true">☷</span> Channels</h2><span class="count" aria-label="@($"{ChannelCount} channels")">@ChannelCount</span></div>
+                    <ChannelSection Group="ChannelGroup.Frequent" Channels="board.Channels.Frequent" />
+                    <ChannelSection Group="ChannelGroup.Infrequent" Channels="board.Channels.Infrequent" />
+                    <ChannelSection Group="ChannelGroup.Archived" Channels="board.Channels.Archived" />
+                </section>
+            </div>
+        }
+    }
+</main>
 
-<h1>Hello, world!</h1>
+@code {
+    private string enteredKey = "";
+    private string? error;
+    private BoardSnapshot? board;
+    private bool restoring = true, busy, unlocked;
+    private int generation;
+    private int ChannelCount => board is null ? 0 : board.Channels.Frequent.Length + board.Channels.Infrequent.Length + board.Channels.Archived.Length;
 
-Welcome to your new app.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        await RestoreAsync();
+        StateHasChanged();
+    }
+
+    private async Task RestoreAsync()
+    {
+        busy = true;
+        error = null;
+        var attempt = generation;
+        try
+        {
+            await Session.RestoreAsync();
+            if (!string.IsNullOrEmpty(Session.Key))
+            {
+                await Api.CheckKeyAsync(Session.Key);
+                if (attempt != generation) return;
+                unlocked = true;
+            }
+        }
+        catch (ApiClientException ex) { if (attempt == generation) await HandleErrorAsync(ex); }
+        catch (JSException) { error = "Session storage is unavailable. Enable browser storage and retry."; }
+        finally { restoring = false; busy = false; }
+        if (unlocked && attempt == generation) await LoadBoardAsync();
+    }
+
+    private async Task UnlockAsync()
+    {
+        if (busy || string.IsNullOrWhiteSpace(enteredKey)) return;
+        busy = true;
+        error = null;
+        var attempt = generation;
+        var candidate = enteredKey;
+        try
+        {
+            await Api.CheckKeyAsync(candidate);
+            if (attempt != generation) return;
+            await Session.SaveAsync(candidate);
+            if (attempt != generation) { await Session.ClearAsync(); return; }
+            enteredKey = "";
+            unlocked = true;
+        }
+        catch (ApiClientException ex) { if (attempt == generation) await HandleErrorAsync(ex); }
+        catch (JSException) { error = "Could not save this session. Enable browser storage and try again."; }
+        finally { busy = false; }
+        if (unlocked) await LoadBoardAsync();
+    }
+
+    private async Task LoadBoardAsync()
+    {
+        if (Session.Key is null) return;
+        var attempt = generation;
+        busy = true;
+        error = null;
+        board = null;
+        try
+        {
+            var result = await Api.GetBoardAsync(Session.Key);
+            if (attempt == generation && unlocked) board = result;
+        }
+        catch (ApiClientException ex) { if (attempt == generation) await HandleErrorAsync(ex); }
+        finally { if (attempt == generation) busy = false; }
+    }
+
+    private async Task HandleErrorAsync(ApiClientException ex)
+    {
+        if (ex.Unauthorized) await LockAsync();
+        error = ex.Message + (error is null ? "" : " " + error);
+    }
+
+    private async Task LockAsync()
+    {
+        generation++;
+        unlocked = false;
+        board = null;
+        enteredKey = "";
+        busy = false;
+        error = null;
+        try { await Session.ClearAsync(); }
+        catch (JSException) { error = "Could not clear browser storage. Close this tab to end its saved session."; }
+    }
+}

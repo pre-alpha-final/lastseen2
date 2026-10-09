@@ -1,0 +1,20 @@
+@using LastSeen2.Contracts
+<li class="video-row">
+    <img src="@Preview" alt="" width="144" height="81" loading="lazy" referrerpolicy="no-referrer" @onerror="() => failed = true" />
+    <div class="video-copy">
+        <a class="bookmark-title" href="@Video.Url" target="_blank" rel="noopener noreferrer">@Video.Title<span class="visually-hidden"> (opens in a new tab)</span></a>
+        <span class="bookmark-url">@Video.Url</span>
+    </div>
+</li>
+@code {
+    [Parameter, EditorRequired] public VideoBookmark Video { get; set; } = default!;
+    private bool failed;
+    private string? previous;
+    private string? Selected => Video.ThumbnailMode == ThumbnailMode.Manual ? Video.ManualThumbnailUrl : Video.AutomaticThumbnailUrl;
+    private string Preview => failed || string.IsNullOrEmpty(Selected) ? "/images/video-placeholder.svg" : Selected;
+    protected override void OnParametersSet()
+    {
+        if (previous != Selected) failed = false;
+        previous = Selected;
+    }
+}
