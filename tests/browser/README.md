@@ -27,3 +27,18 @@ node tests/browser/phase4.cjs
 ```
 
 Stop the disposable host afterward. To check published output, publish the server and run `dotnet LastSeen2.Server.dll --urls http://127.0.0.1:5194` from the publish directory with the same test environment, then run the same browser command. Phase 4 was verified with Playwright 1.62.1 and Edge on Windows. These tests supplement the solution tests; complete CRUD/ordering and cross-browser coverage belongs to later phases.
+
+
+## Phase 5 CRUD checks
+
+`phase5.cjs` runs real video/channel CRUD against the API and MongoDB. Use an **empty, disposable isolated database**, never the configured application database. The suite verifies revision zero/empty arrays before its first write and leaves synthetic bookmarks in that test database. Saves use unsupported example.com URLs; metadata/image failures and races are intercepted deterministically. Use the same Playwright/Edge setup above.
+
+Start a local test MongoDB on port 27025, bound to 127.0.0.1. Launch a disposable host with `ConnectionStrings__LastSeen2` pointing to a newly generated `lastseen2_test_<guid>` database on that server and `Authentication__AccessKey` set to a disposable test key. Run `dotnet run --project src/LastSeen2.Server --no-launch-profile --urls http://127.0.0.1:5195`.
+
+In the test terminal, set `NODE_PATH` as above, `PHASE5_TEST_URL` to `http://127.0.0.1:5195`, `PHASE5_TEST_KEY` to the same disposable key, and `PHASE5_ISOLATED` to `yes`. Run `node tests/browser/phase5.cjs`.
+
+For each repeat run, restart the host with a fresh generated database name. The script does not clear or drop databases. Stop your disposable processes afterward. Published checks use the same settings with the published server instead of `dotnet run`.
+
+Coverage: persisted CRUD/reload and add/edit ordering; default/group changes; cancel/Escape and deletion confirmation; modal focus containment/restoration; keyboard save/delete; manual thumbnail preservation/clearing; real stale revisions and explicit reload/review; missing bookmarks; recoverable save errors; touched-title and changed-URL metadata races; partial/unavailable/network metadata; credential-bearing URL validation; broken previews; duplicate-submission prevention; 401 session clearing; key isolation; 320/390px overflow checks.
+
+Screenshots: `docs/screenshots/phase5-board.png`, `phase5-video-dialog.png`, and `phase5-mobile-dialog.png`. Dialog scrolling keeps controls reachable at narrow heights. Phase 6 ordering gestures and broader cross-browser coverage remain deferred.

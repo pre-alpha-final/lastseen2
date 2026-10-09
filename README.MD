@@ -4,7 +4,7 @@ A single-user video and channel bookmark app. The implementation roadmap and seq
 
 ## Current status
 
-Phases 1–4 are complete: protected MongoDB bookmark API, credential-free provider metadata, and a dark Sketchy interface with unlock, session restoration, Lock, and a read-only board. Bookmark editing and ordering controls follow in Phases 5 and 6.
+Phases 1–5 are complete: protected MongoDB bookmark API, credential-free provider metadata, and a dark Sketchy interface with unlock, session restoration, Lock, and complete bookmark editing. Drag-and-drop and keyboard ordering controls follow in Phase 6.
 
 ## Projects
 
@@ -46,11 +46,15 @@ Open the app and enter the configured shared access key. A successful `/api/auth
 
 `Services/BoardApiClient.cs` sends the key per request only to fixed same-origin API routes. Browser redirects are rejected, browser credentials are omitted, and no default authorization headers are installed. External image requests use ordinary image elements with no referrer or app key. External bookmark links open a new tab with `noopener noreferrer`.
 
-The read-only board keeps server array order, uses a two-thirds/one-third desktop layout, and stacks videos above channels at 800px and below. Channel counts and green/amber/red group accents are paired with text labels. Refresh reloads the current board. Add/edit/delete and ordering controls are intentionally reserved for subsequent phases.
+The board keeps server array order, uses a two-thirds/one-third desktop layout, and stacks videos above channels at 800px and below. Channel counts and green/amber/red group accents are paired with text labels. Refresh reloads the current board. Add Video and Add Channel open keyboard-accessible dialogs. Each bookmark has Edit and Delete actions; deletion requires confirmation. New channels default to Frequent. Video saves move to the top; channel edits keep position unless the group changes. Ordering controls remain Phase 6.
+
+Video dialogs include automatic/manual thumbnail selection, a preview, and an explicit Look up metadata action. Suggestions fill an untouched title and automatic preview; they never replace a typed title or manual thumbnail. Failed lookups and broken images use a local placeholder without blocking a valid save. The manual URL is retained across mode changes until cleared; Manual mode requires an image URL. Automatic saves refresh provider thumbnails on the server.
+
+Save progress disables duplicate submissions. Cancel or Escape closes an idle dialog without changes; focus returns to the initiating control. Failed saves retain entered values. Conflicts, missing items, and uncertain write results require Reload and review before another save. Reload updates the board and shows the latest saved values alongside the retained draft; a deleted item cannot be resubmitted. An uncertain create may already have succeeded, so check the refreshed board before adding again. Unauthorized responses close the dialog and clear the session.
 
 Sketchy 5.3.8 and Fontsource 5.2.6 Neucha/Cabin Sketch fonts are pinned and served locally from `wwwroot/vendor`; licenses and provenance are included there. Dark overrides live in `wwwroot/css/app.css`. No frontend build tool or CDN access is needed to run the app.
 
-Phase 4 browser checks and screenshot reproduction: [tests/browser/README.md](tests/browser/README.md). Review [desktop](docs/screenshots/phase4-populated-desktop.png), [mobile](docs/screenshots/phase4-populated-mobile.png), and [unlock](docs/screenshots/phase4-unlock.png) screenshots. Screenshots use synthetic bookmarks, never application data.
+Phase 4 shell and Phase 5 CRUD browser checks and screenshot reproduction: [tests/browser/README.md](tests/browser/README.md). Review [desktop](docs/screenshots/phase4-populated-desktop.png), [mobile](docs/screenshots/phase4-populated-mobile.png), and [unlock](docs/screenshots/phase4-unlock.png) screenshots. Screenshots use synthetic bookmarks, never application data.
 
 ## Server configuration
 

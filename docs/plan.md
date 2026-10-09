@@ -236,7 +236,7 @@ Each phase starts as **Not started**. Its owning agent updates the entry with:
 | 2 — Authentication, persistence, and bookmark API | Complete | Protected CRUD, ordering, revision checks, MongoDB persistence and validation | 45 tests including isolated MongoDB; release publish, HTTP assets, process restart and outage checks passed | See Phase 2 handoff below |
 | 3 — Credential-free thumbnail metadata | Complete | Protected YouTube/Twitch suggestions, restricted networking, nonfatal automatic thumbnail refresh and local placeholder | 102 tests including isolated MongoDB; release publish and HTTP smoke checks; live provider observations recorded | See Phase 3 handoff below |
 | 4 — Dark interface and unlocking flow | Complete | Local dark Sketchy assets, responsive read-only board, unlock/session/Lock and recoverable loading errors | 102 tests including isolated Mongo; desktop/mobile browser checks; published assets and real API browser read passed | See Phase 4 handoff below |
-| 5 — Complete bookmark editing | Not started | — | — | — |
+| 5 — Complete bookmark editing | Complete | Accessible video/channel CRUD dialogs, metadata previews, confirmation, snapshot updates and explicit conflict review | 102 tests including isolated Mongo; real CRUD browser suite on development and published hosts; shell regression and published HTTP checks | See Phase 5 handoff below |
 | 6 — Persistent drag-and-drop ordering | Not started | — | — | — |
 | 7 — Release verification and operating documentation | Not started | — | — | — |
 
@@ -322,3 +322,25 @@ The app is complete only when all seven phases meet their acceptance criteria. A
 The same follow-up also removes the redundant unlock description and the main-page Bookmarks heading. Refresh remains right-aligned. Build, browser checks, and refreshed screenshots passed after this refinement.
 
 Removed the page-title tagline as requested; the title is now LastSeen2 and the loading status uses neutral wording.
+
+
+### Phase 5 handoff — Complete
+
+**Delivered (2026-10-10):** Add/edit video and channel dialogs, thumbnail mode/manual URL/preview, explicit metadata lookup with partial suggestions and nonfatal failure feedback, provider icons, per-item editing/deletion, and deletion confirmation. New channels default to Frequent. Returned snapshots drive all lists/counts/order. Real CRUD confirms video add/edit-to-top, channel same-group order preservation and destination-top group changes. Existing safe new-tab links and local broken-image fallback remain.
+
+**Interaction and recovery:** Native modal dialogs plus `wwwroot/dialog.js` provide focus containment, Escape cancellation, and focus restoration (Refresh fallback if the original item disappears). Saving disables controls and cancellation to prevent duplicate submissions or dismissal during an uncertain write. Form drafts survive failures. Conflicts, missing items, transport/read failures and server errors require an explicit Reload and review action; reload applies the latest snapshot and displays current saved values while retaining the draft. Missing items cannot be resubmitted. Uncertain creates instruct the user to check the refreshed board before adding again. Unauthorized metadata/mutation/read responses clear the session, board and dialog. Disposed dialogs ignore late responses.
+
+**Metadata/manual behavior:** Look up metadata is an explicit form action; automatic saves still refresh through the existing backend. Suggestions never overwrite touched titles or manual URLs. URL changes invalidate in-flight suggestions and clear stale automatic previews. Title-only suggestions are supported. Existing manual URLs are resent even when inactive in Automatic mode; clearing sends explicit null. Manual mode requires an image URL. Metadata failures do not block valid saves. Provider text is rendered as text and external images never receive the app key.
+
+**Contracts/configuration:** No backend, DTO, persistence-schema, dependency or environment-setting changes. `BoardApiClient` now exposes fixed-route CRUD/metadata calls, preserving per-request same-origin headers, redirect rejection and omitted browser credentials. `ApiClientException.RequiresReview` distinguishes errors requiring reload before resubmission. `BookmarkDialog` owns its opening revision and draft; parent snapshot updates do not silently advance that revision.
+
+**Verification:**
+
+- `dotnet build src/LastSeen2.slnx --no-restore --nologo`: passed, zero warnings/errors.
+- `dotnet test src/LastSeen2.slnx --no-build --nologo`: **102 passed**, no skips, using a localhost-only MongoDB 8.2.0 on port 27025 and generated isolated test databases. Application data was not accessed.
+- `node tests/browser/phase5.cjs`: passed against both development and published Production hosts with real isolated MongoDB CRUD. Covers persisted reload, ordering, cancellation, keyboard/focus behavior, manual preservation/clearing, real competing-writer conflicts and review, missing items, 503 recovery, metadata partial/failure/races, invalid URL credentials, broken images, duplicate submit suppression, 401 clearing, key isolation and mobile overflow. Metadata/images use deterministic fixtures; save operations use unsupported URLs to avoid live provider dependencies.
+- `dotnet publish src/LastSeen2.Server -c Release -o artifacts/phase5-publish --no-restore --nologo`: passed. Published HTTP checks passed for root, client fallback, bootstrap/runtime JavaScript, native WASM, CSS, Sketchy, fonts, placeholder, new dialog module, unknown API routes (including dots), and nonpublic appsettings.
+- `node tests/browser/phase4.cjs`: passed against published output. Original Phase 4 screenshots were retained; new Phase 5 screenshots show synthetic data only: [board](screenshots/phase5-board.png), [video dialog](screenshots/phase5-video-dialog.png), [mobile dialog](screenshots/phase5-mobile-dialog.png).
+- `git diff --check` and changed tracked/untracked text checks passed; CRLF preserved without line-ending-only changes.
+
+**Next agent and limitations:** Implement Phase 6 only. Add persistent pointer/touch/keyboard ordering through the same API client and authoritative snapshot flow. Preserve the distinct video/channel edit ordering rules, dialog focus behavior, draft preservation, revision checks, and explicit review after uncertain writes. See `tests/browser/README.md` for reproducible setup; temporary scripts/binaries under ignored artifacts are not prerequisites. Browser coverage is Edge/Chromium; other engines and ordering gestures remain for later phases. Live provider checks were not repeated because the metadata backend is unchanged. Process-restart persistence remains covered by the existing real Mongo integration test. Temporary verification processes were stopped.
