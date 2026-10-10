@@ -46,7 +46,7 @@ Serve the app at the origin root, not a subpath. Forward `/api` and all assets t
 
 The application does not currently consume forwarded headers or perform HTTPS redirects. This example enforces TLS and HSTS at the edge; do not assume Kestrel redirects HTTP. If adding scheme/client-IP-dependent middleware later, configure Forwarded Headers with explicit trusted proxies first. The failed-key limiter is currently process-wide, not IP-based or distributed. See Microsoft's [reverse proxy hosting guidance](https://learn.microsoft.com/en-us/aspnet/core/fundamentals/servers/kestrel/when-to-use-a-reverse-proxy?view=aspnetcore-10.0).
 
-Before opening access, verify the public HTTPS origin: unlock, read the board, load bootstrap/runtime JavaScript and native WASM, load CSS/fonts, refresh, and Lock. Unknown `/api` routes must return Problem Details rather than HTML; `/appsettings.json` must return 404. A root HTML 200 alone is not a readiness check. `/api/auth/check` validates only the key; an authenticated `/api/board` also checks storage and can initialize/migrate data. Back up before that first read during an upgrade. Test a synthetic bookmark only in a disposable deployment, not by seeding production data.
+Before opening access, verify the public HTTPS origin: unlock, read the board, load bootstrap/runtime JavaScript and native WASM, load CSS/fonts, refresh, and Lock. Unknown `/api` routes must return Problem Details rather than HTML; `/appsettings.json` must return 404. A root HTML 200 alone is not a readiness check. `/api/auth/check` validates only the key; an authenticated `/api/board` also checks storage and initializes an empty collection. The initial release requires an empty application collection; earlier development formats have no migration path. Test a synthetic bookmark only in a disposable deployment, not by seeding production data.
 
 ## Rotate the shared key
 
@@ -55,7 +55,7 @@ Before opening access, verify the public HTTPS origin: unlock, read the board, l
 3. Verify the old key gets 401 and the new key can read the board. Do not print either key during verification. After 30 failed attempts, wait for the minute-long rate-limit window to reset before checking again.
 4. Unlock browser tabs with the new key. Existing tabs clear their session and displayed board on their next unauthorized API response. Rotation does not remotely erase an idle tab's already-rendered data; use Lock or close it on a shared device.
 
-No database migration or bookmark changes are involved. A service restart preserves content and order.
+No database or bookmark changes are involved. A service restart preserves content and order.
 
 ## Back up and restore standalone MongoDB
 
@@ -73,7 +73,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Backup failed; do not proceed with upgrade.' }
 Get-FileHash -LiteralPath $backup -Algorithm SHA256
 ```
 
-Store the archive encrypted, restrict access, and retain the checksum, date, app version, MongoDB/tools versions, source database/collection and schema version alongside it (never credentials). Keep a pre-migration backup until the new release and a restore drill are accepted. Restart the app only after the dump finishes successfully.
+Store the archive encrypted, restrict access, and retain the checksum, date, app version, MongoDB/tools versions, source database/collection and schema version alongside it (never credentials). Retain verified backups according to the deployment's recovery needs. Restart the app only after the dump finishes successfully.
 
 For a restore drill or recovery, keep the target app stopped and restore into a **new empty database**, using a separate restricted target config and explicit namespace remapping. The target URI should specify the server and authentication source without pinning the source data database. Use a target identity authorized to create that database:
 
@@ -83,9 +83,9 @@ mongorestore --config 'D:\private-config\mongo-target.yml' --archive=$backup --g
 if ($LASTEXITCODE -ne 0) { throw 'Restore failed; keep the target app stopped.' }
 ```
 
-Verify the restored collection with an isolated app instance pointed at the restored database: compare revision, item counts, every field, group and ordering with the expected pre-backup board, then restart that instance and confirm persistence. A legacy backup migrates on first authorized read when opened by this release; use the matching old binary if validating an actual schema rollback. Do not mix restored records with an existing live collection or restore only the manifest. This procedure deliberately avoids `--drop`; destructive in-place recovery needs its own explicit target review and backup.
+Verify the restored collection with an isolated app instance pointed at the restored database: compare revision, item counts, every field, group and ordering with the expected pre-backup board, then restart that instance and confirm persistence. Use backups from this initial release schema; earlier development backups are unsupported. Do not mix restored records with an existing live collection or restore only the manifest. This procedure deliberately avoids `--drop`; destructive in-place recovery needs its own explicit target review and backup.
 
-Once validated, stop all production app instances, update their URI database path to the restored database while retaining the intended authentication source, and restart them together. Keep the previous database and backup for investigation until recovery is accepted. Schema rollback requires the matching older binary **and** a complete pre-migration restore; do not run an older writer against schema 3. See [storage invariants](storage.md) and MongoDB's [mongodump](https://www.mongodb.com/docs/database-tools/mongodump/) and [mongorestore](https://www.mongodb.com/docs/database-tools/mongorestore/) references.
+Once validated, stop all production app instances, update their URI database path to the restored database while retaining the intended authentication source, and restart them together. Keep the previous database and backup for investigation until recovery is accepted. Do not run earlier development binaries against the initial release collection. See [storage invariants](storage.md) and MongoDB's [mongodump](https://www.mongodb.com/docs/database-tools/mongodump/) and [mongorestore](https://www.mongodb.com/docs/database-tools/mongorestore/) references.
 
 ## Diagnose and recover
 

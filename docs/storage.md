@@ -2,9 +2,9 @@
 
 LastSeen2 uses one collection on a standalone MongoDB server. Multi-document transactions and replica-set infrastructure are not required. The API still exposes an ordered board snapshot with a revision.
 
-## Schema version 3
+## Initial schema (version 1)
 
-- One document per bookmark: `_id` is the GUID string, `kind` is `video` or `channel`, `schemaVersion` is 3, and `versions` maps unique operation tokens to `{ generation, value }`.
+- One document per bookmark: `_id` is the GUID string, `kind` is `video` or `channel`, `schemaVersion` is 1, and `versions` maps unique operation tokens to `{ generation, value }`.
 - Each value contains that item's fields, timestamps, and zero-based position; channels also contain their group. Bookmark content is stored only in its own document.
 - One `_id: "board"` metadata document contains `kind: "board"`, schema version, API revision, internal generation, and `items: [{ id, version }]`. These references contain no bookmark content. Positions live in item values, so reference-array order is irrelevant.
 - Normal cleanup leaves one committed version per live item and removes deleted items. Failed or concurrent saves may temporarily leave unreferenced versions or item documents; these are invisible to the application.
@@ -27,12 +27,10 @@ Cleanup unsets individual version keys, never replaces an entire item or its ver
 
 A reader may have loaded an older manifest whose versions are pruned concurrently. It rechecks metadata and retries; it must never silently omit missing items. Unknown publication results retain versions until a later committed generation proves they are unreachable. Repeated failed saves without a subsequent successful save can retain invisible storage until normal cleanup resumes.
 
-## Migration and operations
+## Initialization and operations
 
-Schema 1 (a single board document) stages each existing item and publishes schema-3 references in place of the old board. Schema 2 (flat items plus revision metadata) stages versions in those same item documents before publishing references; cleanup removes the obsolete flat fields. The public revision is preserved, while the internal generation advances. Competing migrations use independent tokens and the same atomic publication check.
-
-Stop old application versions and back up the collection before migration. Do not run old writers against the upgraded collection or edit internal metadata/version fields manually. Restoring the pre-migration backup is required to roll back the schema. Migration occurs on the first authorized board operation; development tests never use the configured application database.
+This is the initial release schema. Deploy against an empty application collection; the first authorized board read initializes revision and generation zero. Earlier development formats are unsupported and have no migration path. The application never automatically clears existing data or converts an unsupported format. Do not edit internal metadata/version fields manually.
 
 Direct database inspection during a write can see staging or cleanup in progress; consistent reads are provided by the application protocol, not by a MongoDB multi-document snapshot. Back up the collection with the application stopped, or use a backup method that provides a consistent database snapshot. Keep journal durability enabled.
 
-Tests use unique `lastseen2_test_<guid>` databases on standalone MongoDB. They verify CRUD, ordering, cross-instance conflicts, read/cleanup races, migrations, collision safety, and persisted states at interrupted-save boundaries. See README for commands.
+Tests use unique `lastseen2_test_<guid>` databases on standalone MongoDB. They verify CRUD, ordering, cross-instance conflicts, read/cleanup races, unsupported-format rejection, collision safety, and persisted states at interrupted-save boundaries. See README for commands.

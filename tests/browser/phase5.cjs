@@ -20,6 +20,7 @@ if (!base || !key || process.env.PHASE5_ISOLATED !== 'yes') throw Error('Set PHA
  const dialog=page.getByRole('dialog');
  const field=name=>dialog.getByLabel(name,{exact:true});
  const closed=()=>page.locator('dialog').waitFor({state:'detached'});
+ const refreshFocused=()=>page.waitForFunction(()=>document.activeElement?.textContent.trim()==='Refresh');
  const save=async()=>{await button('Save').click();await closed();};
  const cancel=async()=>{await button('Cancel').click();await closed();};
  await page.route('https://preview.example.test/**',r=>r.fulfill({status:404}));
@@ -57,8 +58,8 @@ if (!base || !key || process.env.PHASE5_ISOLATED !== 'yes') throw Error('Set PHA
  const before=await api();
  await button('Delete video: Edited video').click();assert(await button('Cancel').evaluate(e=>e===document.activeElement));await cancel();
  await button('Delete channel: Edited channel').click();await dialog.waitFor();await page.keyboard.press('Escape');await closed();assert.deepEqual(await api(),before);
- await button('Delete video: Edited video').click();await button('Delete bookmark').click();await closed();
- await button('Delete channel: Edited channel').click();await button('Delete bookmark').focus();await page.keyboard.press('Enter');await closed();
+ await button('Delete video: Edited video').click();await button('Delete bookmark').click();await closed();await refreshFocused();
+ await button('Delete channel: Edited channel').click();await button('Delete bookmark').focus();await page.keyboard.press('Enter');await closed();await refreshFocused();
  await page.reload();await button('Edit video: Second video').waitFor();assert.equal(await button('Edit channel: Edited channel').count(),0);
  // Real stale revision from another writer, draft retained, explicit review and resubmit.
  await button('Edit video: Second video').click();await field('Title').fill('My draft');
@@ -90,7 +91,7 @@ if (!base || !key || process.env.PHASE5_ISOLATED !== 'yes') throw Error('Set PHA
  for(const width of [390,320]){await page.setViewportSize({width,height:844});assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));}
  // Deleted elsewhere: stale deletion cannot be retried against a missing item.
  await button('Delete video: My own title').click();board=await api();const removed=board.videos.find(v=>v.title==='My own title');await api(`/videos/${removed.id}?expectedRevision=${board.revision}`,'DELETE');
- await button('Delete bookmark').click();await button('Reload and review').click();await page.getByText('This bookmark has been deleted.',{exact:false}).waitFor();assert(await button('Delete bookmark').isDisabled());await cancel();
+ await button('Delete bookmark').click();await button('Reload and review').click();await page.getByText('This bookmark has been deleted.',{exact:false}).waitFor();assert(await button('Delete bookmark').isDisabled());await cancel();await refreshFocused();
  // URL-free items render as text, persist, and can gain/lose a link through editing.
  await page.setViewportSize({width:1536,height:1024});
  for(const [kind,title] of [['Video','Video without URL'],['Channel','Channel without URL']]) {

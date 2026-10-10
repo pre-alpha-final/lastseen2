@@ -18,6 +18,6 @@ export function open(dialog, receiver) {
         dialog.removeEventListener('keydown', trap);
         dialog.close();
         if (previous?.isConnected) previous.focus();
-        else document.querySelector('.board-toolbar button')?.focus();
+        else document.querySelector('.header-actions button:not(:disabled)')?.focus();
     } };
 }

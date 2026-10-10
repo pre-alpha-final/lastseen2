@@ -15,11 +15,13 @@ public interface IBoardStore
 
 public sealed class MongoBoardStore : IBoardStore, IDisposable
 {
+    private const int SchemaVersion = 1;
     public const int MaxBoardBytes = 12 * 1024 * 1024;
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private static readonly FilterDefinitionBuilder<BsonDocument> Filter = Builders<BsonDocument>.Filter;
     private static readonly FilterDefinition<BsonDocument> BoardId = Filter.Eq("_id", "board");
-    private static readonly FilterDefinition<BsonDocument> Items = Filter.In("kind", new[] { "video", "channel" });
+    private static readonly FilterDefinition<BsonDocument> Items = Filter.In("kind", new[] { "video", "channel" })
+        & Filter.Eq("schemaVersion", SchemaVersion);
     private readonly IMongoCollection<BsonDocument> collection;
     private readonly MongoClient client;
 
@@ -43,7 +45,7 @@ public sealed class MongoBoardStore : IBoardStore, IDisposable
 
     private static BsonDocument Metadata(long revision, long generation, BsonArray references) => new()
     {
-        { "_id", "board" }, { "kind", "board" }, { "schemaVersion", 3 },
+        { "_id", "board" }, { "kind", "board" }, { "schemaVersion", SchemaVersion },
         { "revision", revision }, { "generation", generation }, { "items", references }
     };
 
@@ -93,8 +95,7 @@ public sealed class MongoBoardStore : IBoardStore, IDisposable
     private static FilterDefinition<BsonDocument> Match(BsonDocument metadata) => BoardId
         & Filter.Eq("schemaVersion", metadata["schemaVersion"])
         & Filter.Eq("revision", metadata["revision"])
-        & (metadata.TryGetValue("generation", out var generation)
-            ? Filter.Eq("generation", generation) : Filter.Exists("generation", false));
+        & Filter.Eq("generation", metadata["generation"]);
 
     private async Task EnsureMetadataAsync(CancellationToken ct)
     {
@@ -110,24 +111,13 @@ public sealed class MongoBoardStore : IBoardStore, IDisposable
         {
             ct.ThrowIfCancellationRequested();
             var metadata = await collection.Find(BoardId).FirstAsync(ct);
-            var schema = metadata["schemaVersion"].AsInt32;
-            if (schema is 1 or 2)
-            {
-                BoardSnapshot legacy;
-                if (schema == 1) legacy = Decode<BoardSnapshot>(metadata);
-                else
-                {
-                    var flat = await collection.Find(Items).ToListAsync(ct);
-                    if (!await collection.Find(Match(metadata)).AnyAsync(ct)) continue;
-                    legacy = Snapshot(metadata["revision"].ToInt64(), flat);
-                }
-                // Competing migrations stage distinct versions and CAS the same old metadata.
-                await SaveAsync(metadata, legacy, migrating: true, ct);
-                continue;
-            }
-            if (schema != 3) throw Unavailable();
+            if (metadata.GetValue("schemaVersion", 0) != SchemaVersion
+                || metadata.GetValue("kind", "") != "board"
+                || !metadata.Contains("generation")
+                || !metadata.TryGetValue("items", out var items) || !items.IsBsonArray)
+                throw Unavailable();
             var references = metadata["items"].AsBsonArray;
-            var documents = await collection.Find(Filter.In("_id", references.Select(r => r["id"]))).ToListAsync(ct);
+            var documents = await collection.Find(Items & Filter.In("_id", references.Select(r => r["id"]))).ToListAsync(ct);
             var byId = documents.ToDictionary(d => d["_id"]);
             var values = new List<BsonDocument>();
             foreach (var reference in references)
@@ -158,19 +148,16 @@ public sealed class MongoBoardStore : IBoardStore, IDisposable
         timeout.CancelAfter(TimeSpan.FromSeconds(15));
         var current = await LoadAsync(timeout.Token);
         if (current.Board.Revision != expectedRevision) return false;
-        return await SaveAsync(current.Metadata, board, migrating: false, timeout.Token);
+        return await SaveAsync(current.Metadata, board, timeout.Token);
     }
 
-    private async Task<bool> SaveAsync(BsonDocument before, BoardSnapshot board, bool migrating, CancellationToken ct)
+    private async Task<bool> SaveAsync(BsonDocument before, BoardSnapshot board, CancellationToken ct)
     {
         var values = EncodeItems(board);
         var generation = checked(before.GetValue("generation", 0).ToInt64() + 1);
         var token = Guid.NewGuid().ToString("N");
         var existing = (await collection.Find(Items).ToListAsync(ct)).ToDictionary(d => d["_id"]);
-        if (migrating && before["schemaVersion"] == 1 && existing.Values.Any(d => d["schemaVersion"] != 3))
-            throw Unavailable();
-        var previous = migrating ? new Dictionary<BsonValue, BsonValue>()
-            : before["items"].AsBsonArray.ToDictionary(r => r["id"], r => r["version"]);
+        var previous = before["items"].AsBsonArray.ToDictionary(r => r["id"], r => r["version"]);
         var references = new BsonArray();
         var stagedIds = new List<BsonValue>();
         var writes = new List<WriteModel<BsonDocument>>();
@@ -190,9 +177,9 @@ public sealed class MongoBoardStore : IBoardStore, IDisposable
                 }
                 stagedIds.Add(id);
                 var filter = Filter.Eq("_id", id) & Filter.Eq("kind", value["kind"])
-                    & Filter.In("schemaVersion", migrating ? new[] { 2, 3 } : new[] { 3 });
+                    & Filter.Eq("schemaVersion", SchemaVersion);
                 var update = Builders<BsonDocument>.Update
-                    .SetOnInsert("_id", id).SetOnInsert("kind", value["kind"]).SetOnInsert("schemaVersion", 3)
+                    .SetOnInsert("_id", id).SetOnInsert("kind", value["kind"]).SetOnInsert("schemaVersion", SchemaVersion)
                     .Set("versions." + token, new BsonDocument { { "generation", generation }, { "value", value } });
                 // Different writers only add immutable, uniquely named versions in each item.
                 // Upsert colliding with an unrelated ID fails without overwriting that record.
@@ -247,7 +234,7 @@ public sealed class MongoBoardStore : IBoardStore, IDisposable
     {
         var filter = Filter.In("_id", ids) & Items;
         await collection.UpdateManyAsync(filter, Builders<BsonDocument>.Update.Unset("versions." + token), cancellationToken: ct);
-        await collection.DeleteManyAsync(filter & Filter.Eq("schemaVersion", 3)
+        await collection.DeleteManyAsync(filter & Filter.Eq("schemaVersion", SchemaVersion)
             & Filter.Eq("versions", new BsonDocument()), ct);
     }
 
@@ -267,19 +254,11 @@ public sealed class MongoBoardStore : IBoardStore, IDisposable
                     if (keep.GetValueOrDefault(id) == version.Name || version.Value["generation"].ToInt64() > generation) continue;
                     updates.Add(Builders<BsonDocument>.Update.Unset("versions." + version.Name));
                 }
-                // Upgrade flat schema-2 items without replacing concurrent writers' versions.
-                if (document["schemaVersion"] == 2)
-                {
-                    var update = Builders<BsonDocument>.Update.Set("schemaVersion", 3);
-                    foreach (var field in document.Names.Where(n => n is not ("_id" or "kind" or "schemaVersion" or "versions")))
-                        update = update.Unset(field);
-                    updates.Add(update);
-                }
                 if (updates.Count > 0) writes.Add(new UpdateOneModel<BsonDocument>(Filter.Eq("_id", id) & Items,
                     Builders<BsonDocument>.Update.Combine(updates)));
             }
             if (writes.Count > 0) await collection.BulkWriteAsync(writes, cancellationToken: ct);
-            await collection.DeleteManyAsync(Items & Filter.Eq("schemaVersion", 3)
+            await collection.DeleteManyAsync(Items & Filter.Eq("schemaVersion", SchemaVersion)
                 & Filter.Eq("versions", new BsonDocument()), ct);
         }
         catch (Exception error) when (error is MongoException or OperationCanceledException or TimeoutException)

@@ -2,6 +2,8 @@
 
 ## Overview
 
+**Current storage baseline (2026-10-10):** The first release starts with a clean application collection and calls the current standalone per-item format schema version 1. Legacy migrations and backward compatibility with development formats have been removed. Earlier schema numbers and migration handoffs below are historical and superseded by this decision.
+
 This document is the implementation plan for LastSeen2. Each phase is run by a separate agent, in order.
 
 Build a single-user bookmark app from `docs/initial_idea.txt` and `docs/initial_idea.jpg`. Keep the existing .NET 10 Blazor WebAssembly frontend and add an ASP.NET Core backend that serves both the API and frontend in production.
@@ -210,7 +212,7 @@ Each handoff must record: status, delivered behavior, changed contracts/configur
 - Review the completed interface against the mockup at desktop and mobile sizes; fix material usability issues.
 - Document local startup, environment configuration, production publish/run, HTTPS hosting, key rotation, and MongoDB backup/restore.
 - Verify published output serves both the client and API correctly.
-- Document credential-free Twitch limitations, standalone per-item persistence/recovery, and migration/backup procedures.
+- Document credential-free Twitch limitations, standalone per-item persistence/recovery, and backup/recovery procedures.
 - Update all phase statuses and record final verification evidence.
 
 **Acceptance**
@@ -460,3 +462,21 @@ Removed the page-title tagline as requested; the title is now LastSeen2 and the 
 **Verification:** `dotnet build src/LastSeen2.slnx -c Release --no-restore --nologo` passed with zero warnings/errors; `node --check tests/browser/phase6.cjs` and `git diff --check` passed. Changed files retain CRLF with no line-ending-only changes. Browser/database suites were not rerun for this small status-copy change. No application data was accessed.
 
 **Maintenance:** Keep progress/error feedback, but do not restore a persistent ordering-success notice. The existing ordering browser suite now verifies the cleared status after successful moves.
+
+### Dialog focus fallback fix — Complete (2026-10-10)
+
+**Delivered:** Fixed dialog focus restoration when the initiating bookmark control has disappeared. The fallback now targets the first enabled header action (Refresh on the board), replacing the obsolete board-toolbar selector. Existing initiating-control focus restoration is preserved. Added browser regression checks for video deletion, keyboard channel deletion, and closing a dialog after reloading an item deleted elsewhere. No API, configuration or storage changes; README instructions remain accurate.
+
+**Verification:** `node tests/browser/release.cjs` passed; evidence: `artifacts/release-af8e8d59-6130-44f6-96db-a06320356aa6`. All 111 backend tests passed with zero skips, along with Release build/publish, published asset checks, Phase 4/5/6 browser suites (including the new focus checks), restart persistence, database outage/recovery and key rotation. `node --check tests/browser/phase5.cjs`, `git diff --check` and byte-level CRLF checks passed. Tests used private disposable localhost MongoDB; application data was untouched and owned test processes were stopped.
+
+**Maintenance:** Keep the fallback aligned with the current header controls and retain the deletion focus assertions. The separately reviewed schema-2 migration recovery issue remains outside this requested fix.
+
+### Initial release schema baseline — Complete (2026-10-10)
+
+**User decision:** The application is before its first release and will start with a clean database. The current standalone per-item storage format is the initial supported schema, numbered 1. Earlier development schemas and migration requirements are superseded; historical handoffs remain as implementation history only.
+
+**Delivered:** Removed single-board/flat-item migration branches, migration-only save options and flat-field cleanup. New item and board metadata documents use schema version 1. Reads require the current manifest shape and supported item schema; unsupported formats are rejected without rewriting them. Atomic reference publication, immutable item versions, revision checks, journaling and crash/concurrency recovery are preserved. Replaced migration integration coverage with current-schema partial staging/collision recovery and unsupported-format rejection checks. README, storage/operations docs and AGENTS now describe the initial-release baseline. API contracts and environment settings are unchanged.
+
+**Verification:** `node tests/browser/release.cjs` passed; evidence: `artifacts/release-0acac4d8-a073-451e-b0f4-ce83993f298c`. Release build passed with zero warnings/errors; all 111 backend tests passed with zero skips, including five isolated standalone MongoDB tests. Production publish/assets, Phase 4/5/6 browser suites, process restart, real database outage/recovery and key rotation passed. `git diff --check` and byte-level checks passed with CRLF preserved. Only generated disposable localhost databases were used; the application database was not accessed or cleared. Owned test processes were stopped.
+
+**Maintenance:** Start the first deployment with an empty application collection; database cleanup remains an operator action. Do not reintroduce compatibility with development layouts or use the historical schema numbers as released versions. The initial schema still requires the standalone storage invariants in docs/storage.md. The earlier dialog focus fix remains intact.
