@@ -4,7 +4,7 @@ A single-user video and channel bookmark app. The implementation roadmap and seq
 
 ## Current status
 
-Phases 1–5 are complete: protected MongoDB bookmark API, credential-free provider metadata, and a dark Sketchy interface with unlock, session restoration, Lock, and complete bookmark editing. Drag-and-drop and keyboard ordering controls follow in Phase 6.
+Phases 1–7 are complete: protected MongoDB CRUD, credential-free metadata, dark Sketchy UI, session/Lock, and persistent pointer/touch/keyboard ordering are implemented. The release suite passes 106 backend tests against isolated standalone MongoDB and browser checks against the published server, including restart persistence, outage recovery and key rotation. Production deployment remains an operator step.
 
 ## Projects
 
@@ -39,6 +39,8 @@ Pop-Location
 ```
 
 The `dotnet` command runs until stopped; execute `Pop-Location` afterward. Publishing the server includes the client's assets. The client uses stable framework filenames (`WasmFingerprintAssets=false`, `BlazorFingerprintBlazorJs=false`) so the hosted SPA fallback works in both development and published output; the standalone HTML fingerprint placeholders have been removed. Use HTTPS for production to protect the shared key in transit. The host follows the [ASP.NET Core Blazor WebAssembly hosting model](https://learn.microsoft.com/en-us/aspnet/core/blazor/host-and-deploy/webassembly/?view=aspnetcore-10.0).
+
+See [operating instructions](docs/operations.md) for HTTPS/service hosting, key rotation, consistent standalone MongoDB backup/restore, migration rollback and troubleshooting. Run the [release verification suite](tests/browser/README.md#release-verification-phase-7) before deployment.
 
 ## Client interface and access
 

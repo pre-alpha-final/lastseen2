@@ -1,6 +1,8 @@
 // Only run against an empty, explicitly isolated disposable MongoDB board.
 const { chromium } = require('playwright');
 const assert = require('node:assert/strict');
+const screenshotDir = process.env.BROWSER_SCREENSHOT_DIR || 'docs/screenshots';
+require('node:fs').mkdirSync(screenshotDir, {recursive:true});
 const base = process.env.PHASE6_TEST_URL, key = process.env.PHASE6_TEST_KEY;
 if (!base || !key || process.env.PHASE6_ISOLATED !== 'yes') throw Error('Set PHASE6_TEST_URL, PHASE6_TEST_KEY and PHASE6_ISOLATED=yes.');
 (async () => {
@@ -74,9 +76,9 @@ if (!base || !key || process.env.PHASE6_ISOLATED !== 'yes') throw Error('Set PHA
   await page.unroute('**/api/videos/reorder');await button('Reload and review').click();await ready();b=await api();assert.deepEqual(await videoNames(),b.videos.map(v=>v.title));
  }
  await page.reload();await ready();assert.deepEqual(await videoNames(),b.videos.map(v=>v.title));
- await page.screenshot({path:'docs/screenshots/phase6-desktop.png',fullPage:true});
+ await page.screenshot({path:`${screenshotDir}/phase6-desktop.png`,fullPage:true});
  for(const width of [390,320]){await page.setViewportSize({width,height:844});assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));}
- await page.screenshot({path:'docs/screenshots/phase6-mobile.png',fullPage:true});
+ await page.screenshot({path:`${screenshotDir}/phase6-mobile.png`,fullPage:true});
  // Unauthorized channel move clears the board and session.
  await page.route('**/api/channels/*/move',r=>r.fulfill({status:401}));
  await page.getByLabel('Move '+b.channels.frequent[0].name+' to group').selectOption('Archived');await page.getByRole('heading',{name:'Unlock board'}).waitFor();assert.equal(await page.evaluate(()=>sessionStorage.getItem('lastseen2.accessKey')),null);

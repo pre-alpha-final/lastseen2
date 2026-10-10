@@ -1,7 +1,8 @@
 // Requires an empty, isolated disposable Mongo board; never use an application database.
 const { chromium } = require('playwright');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
+const screenshotDir = process.env.BROWSER_SCREENSHOT_DIR || 'docs/screenshots';
+require('node:fs').mkdirSync(screenshotDir, {recursive:true});
 const base = process.env.PHASE5_TEST_URL, key = process.env.PHASE5_TEST_KEY;
 if (!base || !key || process.env.PHASE5_ISOLATED !== 'yes') throw Error('Set PHASE5_TEST_URL, PHASE5_TEST_KEY and PHASE5_ISOLATED=yes for an empty disposable test database.');
 (async () => {
@@ -80,12 +81,12 @@ if (!base || !key || process.env.PHASE5_ISOLATED !== 'yes') throw Error('Set PHA
  await field('URL').fill('https://user:password@example.com/video');await button('Save').click();await page.getByRole('alert').filter({hasText:'without credentials'}).waitFor();await field('URL').fill('https://example.com/new');
  await field('Thumbnail mode').selectOption('Manual');await field('Manual thumbnail URL').fill('https://preview.example.test/broken.jpg');
  await page.waitForFunction(()=>document.querySelector('.preview-line img').getAttribute('src')==='/images/video-placeholder.svg');
- fs.mkdirSync('docs/screenshots',{recursive:true});await page.screenshot({path:'docs/screenshots/phase5-video-dialog.png',fullPage:true});
- await page.setViewportSize({width:320,height:844});assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await page.screenshot({path:'docs/screenshots/phase5-mobile-dialog.png',fullPage:true});
+ await page.screenshot({path:`${screenshotDir}/phase5-video-dialog.png`,fullPage:true});
+ await page.setViewportSize({width:320,height:844});assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await page.screenshot({path:`${screenshotDir}/phase5-mobile-dialog.png`,fullPage:true});
  // Duplicate submits while a save is in flight produce one request.
  let writes=0;await page.route('**/api/videos',async r=>{writes++;await new Promise(resolve=>setTimeout(resolve,300));await r.continue();});
  await button('Save').click();await page.keyboard.press('Enter');await closed();assert.equal(writes,1);await page.unroute('**/api/videos');
- await page.setViewportSize({width:1536,height:1024});await page.screenshot({path:'docs/screenshots/phase5-board.png',fullPage:true});
+ await page.setViewportSize({width:1536,height:1024});await page.screenshot({path:`${screenshotDir}/phase5-board.png`,fullPage:true});
  for(const width of [390,320]){await page.setViewportSize({width,height:844});assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));}
  // Deleted elsewhere: stale deletion cannot be retried against a missing item.
  await button('Delete video: My own title').click();board=await api();const removed=board.videos.find(v=>v.title==='My own title');await api(`/videos/${removed.id}?expectedRevision=${board.revision}`,'DELETE');
