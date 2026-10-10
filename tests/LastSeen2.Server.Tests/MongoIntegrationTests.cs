@@ -104,7 +104,22 @@ public sealed class MongoIntegrationTests
                 Assert.Equal(12, restored.Revision);
             }
             var documents = cleanup.GetDatabase(databaseName).GetCollection<BsonDocument>("board_integration");
-            Assert.Equal(1, await documents.CountDocumentsAsync(FilterDefinition<BsonDocument>.Empty));
+            var stored = await documents.Find(FilterDefinition<BsonDocument>.Empty).ToListAsync();
+            Assert.Equal(3, stored.Count); // Two remaining bookmarks plus revision metadata.
+            var metadata = Assert.Single(stored, d => d["kind"] == "board");
+            Assert.Equal(3, metadata["schemaVersion"].AsInt32);
+            Assert.Equal(12, metadata["revision"].ToInt64());
+            Assert.False(metadata.Contains("videos"));
+            Assert.False(metadata.Contains("channels"));
+            Assert.Single(stored, d => d["kind"] == "video");
+            Assert.Single(stored, d => d["kind"] == "channel");
+            Assert.All(stored.Where(d => d["kind"] != "board"), d =>
+            {
+                Assert.True(Guid.TryParse(d["_id"].AsString, out _));
+                var version = Assert.Single(d["versions"].AsBsonDocument);
+                Assert.Equal(0, version.Value["value"]["position"].AsInt32);
+                Assert.False(d.Contains("id"));
+            });
         }
         finally
         {
@@ -118,4 +133,224 @@ public sealed class MongoIntegrationTests
             }
         }
     }
+
+    [MongoFact]
+    public async Task LegacyMigrationPreservesItemsAndDiscardsUncommittedWrites()
+    {
+        var source = new MongoUrl(Environment.GetEnvironmentVariable("LASTSEEN2_TEST_MONGODB")!);
+        var databaseName = "lastseen2_test_" + Guid.NewGuid().ToString("N");
+        var connection = new MongoUrlBuilder(source.Url)
+        {
+            DatabaseName = databaseName,
+            AuthenticationSource = source.AuthenticationSource ?? source.DatabaseName
+        }.ToString();
+        using var mongo = new MongoClient(connection);
+        var collection = mongo.GetDatabase(databaseName).GetCollection<BsonDocument>("board_integration");
+        var options = Microsoft.Extensions.Options.Options.Create(new MongoDbOptions
+        {
+            ConnectionString = connection, Collection = "board_integration"
+        });
+        using var store = new MongoBoardStore(options);
+        using var other = new MongoBoardStore(options);
+        var now = DateTimeOffset.UtcNow;
+        var video = new VideoBookmark(Guid.NewGuid(), "Legacy", "https://example.com/video",
+            ThumbnailMode.Manual, "https://example.com/auto", "https://example.com/manual", now, now);
+        ChannelBookmark Channel(ChannelGroup group) => new(Guid.NewGuid(), "Legacy channel", "https://example.com/channel", group, now, now);
+        var original = new BoardSnapshot(42, [video, video with { Id = Guid.NewGuid(), Title = "Second" }],
+            new([Channel(ChannelGroup.Frequent), Channel(ChannelGroup.Frequent)],
+                [Channel(ChannelGroup.Infrequent)], [Channel(ChannelGroup.Archived)]));
+        var json = new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web);
+        string Serialize(BoardSnapshot board) => System.Text.Json.JsonSerializer.Serialize(board, json);
+        var legacy = BsonDocument.Parse(Serialize(original));
+        legacy["_id"] = "board";
+        legacy["schemaVersion"] = 1;
+        legacy["revision"] = 42L;
+        var unrelated = new BsonDocument { { "_id", video.Id.ToString() }, { "note", "Leave intact" } };
+        try
+        {
+            await collection.InsertManyAsync([legacy, unrelated]);
+            legacy = await collection.Find(new BsonDocument("_id", "board")).SingleAsync();
+            // Migration must not overwrite an unrelated document with a colliding ID.
+            await Assert.ThrowsAnyAsync<MongoException>(() => store.ReadAsync(default));
+            Assert.Equal(legacy, await collection.Find(new BsonDocument("_id", "board")).SingleAsync());
+            Assert.Equal(2, await collection.CountDocumentsAsync(FilterDefinition<BsonDocument>.Empty));
+            await collection.DeleteOneAsync(new BsonDocument("_id", video.Id.ToString()));
+            unrelated["_id"] = Guid.NewGuid().ToString();
+            await collection.InsertOneAsync(unrelated);
+            var reads = await Task.WhenAll(store.ReadAsync(default), other.ReadAsync(default));
+            Assert.All(reads, board => Assert.Equal(Serialize(original), Serialize(board)));
+            Assert.Equal(8, await collection.CountDocumentsAsync(FilterDefinition<BsonDocument>.Empty));
+            Assert.Equal(unrelated, await collection.Find(new BsonDocument("_id", unrelated["_id"])).SingleAsync());
+            using (var restarted = new MongoBoardStore(options))
+                Assert.Equal(Serialize(original), Serialize(await restarted.ReadAsync(default)));
+
+            // A partial staging failure must not publish any item changes or advance the revision.
+            var collision = video with { Id = Guid.Parse(unrelated["_id"].AsString) };
+            var invalid = original with { Revision = 43, Videos = [video with { Title = "Must roll back" }, collision] };
+            await Assert.ThrowsAnyAsync<MongoException>(() => store.ReplaceAsync(42, invalid, default));
+            Assert.Equal(Serialize(original), Serialize(await store.ReadAsync(default)));
+            Assert.Equal(unrelated, await collection.Find(new BsonDocument("_id", unrelated["_id"])).SingleAsync());
+            Assert.False(await store.ReplaceAsync(41, original with { Revision = 42 }, default));
+            Assert.True(await store.ReplaceAsync(42, original with { Revision = 43, Videos = [] }, default));
+            Assert.Empty((await other.ReadAsync(default)).Videos);
+            Assert.Equal(6, await collection.CountDocumentsAsync(FilterDefinition<BsonDocument>.Empty));
+        }
+        finally
+        {
+            if (!databaseName.StartsWith("lastseen2_test_", StringComparison.Ordinal)
+                || databaseName == source.DatabaseName) throw new InvalidOperationException("Unsafe test cleanup target");
+            await mongo.DropDatabaseAsync(databaseName);
+        }
+    }
+
+    private sealed class IsolatedStore : IDisposable
+    {
+        private readonly MongoUrl source = new(Environment.GetEnvironmentVariable("LASTSEEN2_TEST_MONGODB")!);
+        public string DatabaseName { get; } = "lastseen2_test_" + Guid.NewGuid().ToString("N");
+        public MongoClient Client { get; }
+        public IMongoCollection<BsonDocument> Collection { get; }
+        private readonly Microsoft.Extensions.Options.IOptions<MongoDbOptions> options;
+
+        public IsolatedStore()
+        {
+            var connection = new MongoUrlBuilder(source.Url)
+            {
+                DatabaseName = DatabaseName, AuthenticationSource = source.AuthenticationSource ?? source.DatabaseName
+            }.ToString();
+            Client = new MongoClient(connection);
+            Collection = Client.GetDatabase(DatabaseName).GetCollection<BsonDocument>("board_integration");
+            options = Microsoft.Extensions.Options.Options.Create(new MongoDbOptions
+            {
+                ConnectionString = connection, Collection = "board_integration"
+            });
+        }
+
+        public MongoBoardStore Open() => new(options);
+        public async Task CleanupAsync()
+        {
+            if (!DatabaseName.StartsWith("lastseen2_test_", StringComparison.Ordinal) || DatabaseName == source.DatabaseName)
+                throw new InvalidOperationException("Unsafe test cleanup target");
+            await Client.DropDatabaseAsync(DatabaseName);
+        }
+        public void Dispose() => Client.Dispose();
+    }
+
+    private static VideoBookmark TestVideo(string title) => new(Guid.NewGuid(), title, "https://example.com/video",
+        ThumbnailMode.Manual, null, "https://example.com/image", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+
+    private static string Serialize(BoardSnapshot board) => System.Text.Json.JsonSerializer.Serialize(board);
+
+    [MongoFact]
+    public async Task StandaloneReadsIgnoreInterruptedStagingAndRecoverCommittedSaveBeforeCleanup()
+    {
+        using var test = new IsolatedStore();
+        try
+        {
+            var hello = await test.Client.GetDatabase("admin").RunCommandAsync<BsonDocument>(new BsonDocument("hello", 1));
+            Assert.False(hello.Contains("setName")); // This test must exercise a real standalone mongod.
+            Assert.NotEqual("isdbgrid", hello.GetValue("msg", "").AsString);
+            var before = new BoardSnapshot(1, [TestVideo("Keep"), TestVideo("Delete")], new([], [], []));
+            using (var store = test.Open())
+            {
+                await store.ReadAsync(default);
+                Assert.True(await store.ReplaceAsync(0, before, default));
+            }
+            var metadata = await test.Collection.Find(new BsonDocument("_id", "board")).SingleAsync();
+            var after = before with { Revision = 2, Videos = [before.Videos[0] with { Title = "Updated" }, TestVideo("New")] };
+            var token = Guid.NewGuid().ToString("N");
+            var generation = metadata["generation"].ToInt64() + 1;
+            var references = new BsonArray();
+            // Persist item versions as if the process died after staging but before publishing.
+            foreach (var value in MongoBoardStore.EncodeItems(after))
+            {
+                await test.Collection.UpdateOneAsync(new BsonDocument("_id", value["_id"]),
+                    Builders<BsonDocument>.Update.SetOnInsert("kind", value["kind"]).SetOnInsert("schemaVersion", 3)
+                        .Set("versions." + token, new BsonDocument { { "generation", generation }, { "value", value } }),
+                    new UpdateOptions { IsUpsert = true });
+                references.Add(new BsonDocument { { "id", value["_id"] }, { "version", token } });
+            }
+            using (var restarted = test.Open())
+                Assert.Equal(Serialize(before), Serialize(await restarted.ReadAsync(default)));
+            // Publishing is one atomic document replacement. Simulate a crash before cleanup or response.
+            metadata["revision"] = 2L;
+            metadata["generation"] = generation;
+            metadata["items"] = references;
+            await test.Collection.ReplaceOneAsync(new BsonDocument("_id", "board"), metadata);
+            using (var restarted = test.Open())
+            {
+                Assert.Equal(Serialize(after), Serialize(await restarted.ReadAsync(default)));
+                Assert.False(await restarted.ReplaceAsync(1, before, default));
+                Assert.True(await restarted.ReplaceAsync(2, after with { Revision = 3 }, default));
+            }
+            var documents = await test.Collection.Find(Builders<BsonDocument>.Filter.Empty).ToListAsync();
+            Assert.Equal(3, documents.Count);
+            Assert.All(documents.Where(d => d["kind"] == "video"), d => Assert.Single(d["versions"].AsBsonDocument));
+            // A missing committed version is an error, never a successful partial board.
+            await test.Collection.DeleteOneAsync(new BsonDocument("_id", after.Videos[0].Id.ToString()));
+            using var broken = test.Open();
+            await Assert.ThrowsAsync<ApiFailure>(() => broken.ReadAsync(default));
+        }
+        finally { await test.CleanupAsync(); }
+    }
+
+    [MongoFact]
+    public async Task ConcurrentReadersAndWritersKeepCompleteSnapshotsOnStandalone()
+    {
+        using var test = new IsolatedStore();
+        try
+        {
+            using var first = test.Open();
+            using var second = test.Open();
+            using var reader = test.Open();
+            await first.ReadAsync(default);
+            var board = new BoardSnapshot(1, Enumerable.Range(0, 8).Select(_ => TestVideo("1-a")).ToArray(), new([], [], []));
+            Assert.True(await first.ReplaceAsync(0, board, default));
+            for (var revision = 2; revision <= 12; revision++)
+            {
+                var a = board with { Revision = revision, Videos = board.Videos.Reverse().Select(v => v with { Title = revision + "-a" }).ToArray() };
+                var b = a with { Videos = a.Videos.Select(v => v with { Title = revision + "-b" }).ToArray() };
+                var writes = Task.WhenAll(first.ReplaceAsync(revision - 1, a, default), second.ReplaceAsync(revision - 1, b, default));
+                var reads = Enumerable.Range(0, 6).Select(async _ =>
+                {
+                    var snapshot = await reader.ReadAsync(default);
+                    Assert.Equal(8, snapshot.Videos.Length);
+                    Assert.All(snapshot.Videos, v => Assert.Equal(snapshot.Videos[0].Title, v.Title));
+                    Assert.StartsWith(snapshot.Revision + "-", snapshot.Videos[0].Title);
+                }).ToArray();
+                Assert.Single(await writes, won => won);
+                await Task.WhenAll(reads);
+                board = await reader.ReadAsync(default);
+                Assert.Equal(revision, board.Revision);
+            }
+        }
+        finally { await test.CleanupAsync(); }
+    }
+
+    [MongoFact]
+    public async Task FlatItemSchemaMigratesWithoutChangingBookmarks()
+    {
+        using var test = new IsolatedStore();
+        try
+        {
+            var original = new BoardSnapshot(7, [TestVideo("Flat item")], new([], [], []));
+            var flat = MongoBoardStore.EncodeItems(original).Single();
+            flat["schemaVersion"] = 2;
+            await test.Collection.InsertManyAsync([flat, new BsonDocument
+            {
+                { "_id", "board" }, { "kind", "board" }, { "schemaVersion", 2 }, { "revision", 7L }
+            }]);
+            using var first = test.Open();
+            using var second = test.Open();
+            var reads = await Task.WhenAll(first.ReadAsync(default), second.ReadAsync(default));
+            Assert.All(reads, board => Assert.Equal(Serialize(original), Serialize(board)));
+            var documents = await test.Collection.Find(Builders<BsonDocument>.Filter.Empty).ToListAsync();
+            Assert.Equal(2, documents.Count);
+            var item = Assert.Single(documents, d => d["kind"] == "video");
+            Assert.Equal(3, item["schemaVersion"].AsInt32);
+            Assert.False(item.Contains("title"));
+            Assert.Single(item["versions"].AsBsonDocument);
+        }
+        finally { await test.CleanupAsync(); }
+    }
+
 }

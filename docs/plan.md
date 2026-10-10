@@ -22,7 +22,7 @@ The finished app provides:
 - Preserve the existing frontend; add server and shared-contract projects to the solution.
 - Use a same-origin API under `/api`. Keep MongoDB settings and the configured access key exclusively on the server.
 - Store the entered key in `sessionStorage`; send it in an `X-Api-Key` header only to the app’s API. Provide a Lock action that clears it.
-- Use one MongoDB collection. For this small personal app, store one versioned board document containing videos and grouped channels. Atomic document updates keep ordering and group moves consistent.
+- Use standalone MongoDB with one collection and one document per video/channel (`kind` and item-owned versions/positions). Revision metadata holds ID/version references only. Publish complete saves through one atomic reference update; no transactions or replica-set/sharding requirements. The user decisions on 2026-10-10 supersede the original single-board-document design and the first transaction-based follow-up; see the standalone storage handoff below.
 - Use revision checks on mutations. Reject stale writes with a conflict response and let the frontend reload without silently overwriting newer data.
 - New videos and successfully edited videos move to the top. Manual reordering remains until a subsequent add or edit changes the affected item’s position.
 - New channels enter the top of their selected group. Editing within the same group preserves order; changing groups places the channel at the destination’s top.
@@ -88,7 +88,7 @@ Each handoff must record: status, delivered behavior, changed contracts/configur
 - Implement MongoDB board initialization and atomic revision-checked mutations. Read the database name from the connection string using the MongoDB driver; reject a missing database name. Use the configured collection, which defaults to `lastseen2`.
 - Implement bookmark CRUD, video reorder, and channel move/reorder endpoints.
 - Validate required names/titles, HTTP(S) URLs, item existence, group membership, and reorder payload integrity.
-- Guard against oversized board documents with a clear error before MongoDB’s document limit is reached.
+- Guard against oversized boards with explicit application item-count and aggregate BSON limits.
 - Fail clearly for missing required configuration and report database failures without claiming successful saves.
 
 **Acceptance**
@@ -210,7 +210,7 @@ Each handoff must record: status, delivered behavior, changed contracts/configur
 - Review the completed interface against the mockup at desktop and mobile sizes; fix material usability issues.
 - Document local startup, environment configuration, production publish/run, HTTPS hosting, key rotation, and MongoDB backup/restore.
 - Verify published output serves both the client and API correctly.
-- Document credential-free Twitch limitations and the single-document storage boundary.
+- Document credential-free Twitch limitations, standalone per-item persistence/recovery, and migration/backup procedures.
 - Update all phase statuses and record final verification evidence.
 
 **Acceptance**
@@ -344,3 +344,29 @@ Removed the page-title tagline as requested; the title is now LastSeen2 and the 
 - `git diff --check` and changed tracked/untracked text checks passed; CRLF preserved without line-ending-only changes.
 
 **Next agent and limitations:** Implement Phase 6 only. Add persistent pointer/touch/keyboard ordering through the same API client and authoritative snapshot flow. Preserve the distinct video/channel edit ordering rules, dialog focus behavior, draft preservation, revision checks, and explicit review after uncertain writes. See `tests/browser/README.md` for reproducible setup; temporary scripts/binaries under ignored artifacts are not prerequisites. Browser coverage is Edge/Chromium; other engines and ordering gestures remain for later phases. Live provider checks were not repeated because the metadata backend is unchanged. Process-restart persistence remains covered by the existing real Mongo integration test. Temporary verification processes were stopped.
+
+
+### Item-document storage follow-up - Superseded by standalone implementation (2026-10-10)
+
+**User decision:** One collection means one record per video/channel, not one record for all bookmarks. This supersedes schema-version-1 storage descriptions in the historical Phase 2-5 handoffs. Phases 6-7 remain not started.
+
+**Delivered:** Schema version 2 stores flat video/channel documents keyed by existing GUID strings, distinguished by `kind`, with `position` per list/group. A small board metadata document holds only schema/kind/revision. The API still returns ordered snapshots. Writes update only affected items and revision in a single transaction; snapshot reads avoid mixed revisions. First read automatically migrates legacy data transactionally, preserving every field, timestamps, IDs, groups, positions and revision. ID collisions or mixed legacy/item data fail without overwriting records.
+
+**Contracts/configuration:** No API or configuration-key changes. MongoDB now requires a replica set or sharded cluster for multi-document transactions; single-node replica sets work for development. Existing aggregate resource limits remain (10000 items, 12 MiB total item BSON). Stop old app instances and back up before deployment; schema rollback requires restoring the backup. README documents these requirements.
+
+**Verification:** `dotnet test src/LastSeen2.slnx --no-restore --nologo` passed **103 tests** (3 contract, 100 server), no skips, using a disposable localhost-only MongoDB 8.2.0 single-node replica set on port 27027. Tests use generated isolated databases only. Coverage includes actual per-item document shapes, CRUD/order/group persistence, stale writes, competing hosts, host recreation, concurrent legacy migration, full legacy field preservation, unrelated records, and rollback after migration/save ID collisions. No application database was accessed or migrated. Final `git diff --check` and byte-level checks passed; all seven changed files preserve the original checkout CRLF, with no line-ending-only changes.
+
+**Superseded:** The user rejected this topology requirement. Follow the standalone handoff below; do not apply the transaction-based guidance in this historical entry.
+
+
+### Standalone item storage follow-up - Complete (2026-10-10)
+
+**User decision:** Standalone MongoDB only. This supersedes the transaction topology and implementation in the immediately preceding handoff. Phases 6-7 remain not started.
+
+**Delivered:** Each bookmark remains one document in the same collection, distinguished by `kind`. Schema version 3 holds immutable versions inside each item document. The board record contains only revision/generation and ID/version references. Saves stage changed versions, then use one atomic reference replacement to publish a consistent board. Reads verify the generation after fetching items and retry on races with commits or cleanup. Stale writers lose the compare-and-swap and return conflicts. No MongoDB transactions, explicit sessions, replica-set setup, or sharding are used. Writes force journaled acknowledgement; failed cleanup is nonfatal and retried after later saves.
+
+**Migration/recovery:** Legacy single-board and flat-item layouts migrate without changing IDs, fields, timestamps, positions, groups or API revision. A staging failure leaves the previous references authoritative. Publication is the commit point; an uncertain response retains potentially committed data, and clients must reload. Crashes after publication but before pruning leave the completed save readable. Abandoned versions are invisible and removable after a later successful save. See `docs/storage.md` for the concurrency/pruning rules and README for deployment/backup guidance.
+
+**Verification:** `dotnet build src/LastSeen2.slnx --no-restore --nologo` passed with zero warnings/errors. `dotnet test src/LastSeen2.slnx --no-restore --nologo` passed **106 tests** (3 contract, 103 server), no skips, against a disposable localhost-only standalone MongoDB 8.2.0 on port 27028. Five isolated real-database tests cover CRUD/order, competing hosts, consistent concurrent readers, actual version/reference documents, schema-1/schema-2 migration, unrelated IDs, partial staging failure, and simulated process-crash boundaries before publication and after publication before cleanup. A test asserts the server is standalone. No application database was accessed or migrated. Final `git diff --check` and tracked/untracked byte-level checks passed; existing files retain CRLF and the new storage document uses CRLF.
+
+**Next agent:** Continue Phase 6 only. Keep the API unchanged and preserve the standalone-only storage protocol. Run real database/browser checks against standalone MongoDB. The earlier replica-set requirement is withdrawn. No production migration or deployment was performed.

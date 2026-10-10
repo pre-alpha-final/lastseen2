@@ -18,7 +18,7 @@ public sealed class BoardService(IBoardStore store, TimeProvider clock, IMetadat
         var updated = (await change(current)) with { Revision = revision + 1 };
         if (updated.Videos.Length + AllChannels(updated).Count() > MaxItems)
             throw new ApiFailure(413, "board_too_large", "Board supports at most 10000 bookmarks");
-        MongoBoardStore.Encode(updated); // Same BSON size guard for every store implementation.
+        MongoBoardStore.EncodeItems(updated); // Same aggregate BSON size guard for every store implementation.
         if (!await store.ReplaceAsync(revision, updated, ct)) throw ApiFailure.Conflict();
         return updated;
     }

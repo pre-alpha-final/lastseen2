@@ -27,7 +27,7 @@ dotnet test src/LastSeen2.slnx --no-build
 dotnet run --project src/LastSeen2.Server --launch-profile http
 ```
 
-Open <http://localhost:5033>. Run the server project, not the standalone client, to use the same-origin API. Stop any standalone client instance using that port first. Set the required MongoDB connection string and access key before starting; missing or invalid settings stop startup. MongoDB is needed for board operations. No Docker, Node.js, or optional WASM workload is required.
+Open <http://localhost:5033>. Run the server project, not the standalone client, to use the same-origin API. Stop any standalone client instance using that port first. Set the required MongoDB connection string and access key before starting; missing or invalid settings stop startup. A standalone MongoDB server is sufficient for board operations. No replica set, sharding, or multi-document transactions are required. No Docker, Node.js, or optional WASM workload is required.
 
 Publish and run the combined application:
 
@@ -105,7 +105,7 @@ All bookmark handlers and metadata lookup are implemented. Metadata returns a no
 
 Use RFC Problem Details (`application/problem+json`), readable as the shared `ApiError` DTO. `code` is a stable machine identifier; validation errors also contain an `errors` map from JSON field names to message arrays. Never include credentials, connection strings, or raw exception details.
 
-The server enforces nonblank titles/names (up to 500 characters), absolute HTTP(S) URLs without embedded credentials (up to 4096 characters), known enum values, nonnegative incrementable revisions, item existence, complete reorder lists, and valid move indices. JSON constructor fields must be supplied, including nullable `manualThumbnailUrl`; malformed or missing fields return 400. Rejected mutations leave persisted bookmarks and revision unchanged. Kestrel limits request bodies to 1 MiB. Boards are limited to 10000 total bookmarks and 12 MiB of BSON, below MongoDB’s document limit.
+The server enforces nonblank titles/names (up to 500 characters), absolute HTTP(S) URLs without embedded credentials (up to 4096 characters), known enum values, nonnegative incrementable revisions, item existence, complete reorder lists, and valid move indices. JSON constructor fields must be supplied, including nullable `manualThumbnailUrl`; malformed or missing fields return 400. Rejected mutations leave persisted bookmarks and revision unchanged. Kestrel limits request bodies to 1 MiB. Boards are limited to 10000 total bookmarks and 12 MiB of aggregate item BSON as application resource limits.
 
 | Status | Code | Meaning |
 | --- | --- | --- |
@@ -139,20 +139,26 @@ Live checks on 2026-10-09: YouTube `dQw4w9WgXcQ` returned a title and thumbnail.
 
 ## Persistence and integration tests
 
-MongoDB.Driver 3.12.0 is a server-only dependency. The configured collection contains a document with `_id: "board"`, `schemaVersion: 1`, an Int64 `revision`, and the ordered `videos` and grouped `channels` arrays. IDs and UTC timestamps are persisted as JSON-compatible strings. The first board operation initializes an empty revision-zero document; concurrent initialization tolerates duplicate-key races. Other documents in the collection are untouched.
+MongoDB.Driver 3.12.0 is a server-only dependency. Every video and channel is its own document in the same configured collection. Schema version 3 uses the bookmark's GUID string as `_id` and `kind: "video"` or `kind: "channel"`. Each item holds its own immutable `versions`, normally just the current version after cleanup. Each version contains `generation` and `value`; the value holds the editable fields, thumbnail values, UTC timestamp strings, and zero-based `position` within its video list or channel group. Channel values also contain `group`. The app reconstructs ordered API arrays from the committed item versions.
 
-Each save reads a snapshot, validates and builds the next snapshot, then replaces the board only when `_id` and the expected revision still match. A losing concurrent writer receives 409. Reads use the primary; writes require majority acknowledgement even if the URI specifies `w=0`. Database operations have bounded timeouts. A timeout may mean the write outcome is unknown: reload the board before retrying. The API never returns a successful snapshot after a failed/unacknowledged write.
+One `_id: "board"`, `kind: "board"`, `schemaVersion: 3` metadata document holds the Int64 `revision`, an internal `generation`, and `items` references (`id`, `version`). It contains no bookmark content or ordering arrays. Initialization creates revision zero and tolerates concurrent callers. Other documents without the reserved item kinds and IDs are untouched.
 
-The normal test run needs no database and explicitly skips the real-MongoDB test when `LASTSEEN2_TEST_MONGODB` is absent. To run all tests, provide a MongoDB server on which the test identity may create and drop databases:
+Each save stages changed values in their own item documents, then atomically replaces only the metadata references using a revision/generation check. That single-document replacement publishes the complete save. A losing concurrent writer receives 409; readers only load referenced versions and recheck the generation, so incomplete writes or concurrent cleanup never produce a partial board. Unchanged items retain their existing version references. Writes use `w=1, j=true` even if the URI specifies weaker acknowledgement. Database operations have bounded timeouts. A timeout during publication may mean the save succeeded: reload before retrying. Potentially committed versions are never discarded after an uncertain commit.
+
+**Deployment:** Use standalone MongoDB with journaling enabled. No transactions, replica set, or sharded cluster are needed. Configuration keys and API contracts are unchanged. Obsolete or abandoned versions are invisible to the app and are pruned after subsequent successful saves. Cleanup failure does not undo a committed save. The protocol and recovery invariants are documented in [docs/storage.md](docs/storage.md).
+
+**Existing-data migration:** Stop older app instances and back up the collection before deploying. The first authorized board read stages schema-version-1 bookmark data in individual documents, then atomically replaces the old board with references. Schema-version-2 flat items from the earlier transaction-based implementation are also upgraded. IDs, every bookmark field, timestamps, ordering, groups, and API revision are preserved. Concurrent migrations retry safely; a failure before publication leaves the old data authoritative. Colliding unrelated IDs cause failure instead of overwriting data. Interrupted staging is invisible; cleanup after a committed migration can resume on a later save. Do not run the old application version after migration; rollback requires restoring the pre-migration backup. No migration has been run against the application's configured database during development.
+
+The normal test run needs no database and explicitly skips the real-MongoDB tests when `LASTSEEN2_TEST_MONGODB` is absent. To run all tests, provide a standalone MongoDB test server on which the test identity may create and drop databases:
 
 ```powershell
-# A local, disposable test server; use your actual test server port.
+# A local, disposable standalone test server; use your actual port.
 $env:LASTSEEN2_TEST_MONGODB = "mongodb://127.0.0.1:27018/test_source"
 dotnet test src/LastSeen2.slnx --no-restore
 Remove-Item Env:LASTSEEN2_TEST_MONGODB
 ```
 
-The integration test replaces the URI's data database with a unique `lastseen2_test_<guid>` name and uses `board_integration`, preserving the original authentication source. It never seeds, clears, or drops the application's database/collection. Cleanup only drops that generated test database. It exercises concurrent initialization, CRUD and ordering, rejected mutations, two competing web hosts, and persistence after disposing and recreating the hosts. Restricted production credentials generally cannot create these test databases; use a separate test server/identity.
+The integration test replaces the URI's data database with a unique `lastseen2_test_<guid>` name and uses `board_integration`, preserving the original authentication source. It never seeds, clears, or drops the application's database/collection. Cleanup only drops that generated test database. It exercises concurrent initialization, CRUD and ordering, rejected mutations, two competing web hosts, persistence after recreating hosts, actual item-document shapes, concurrent legacy migration, unrelated-document preservation, partial staging failures, concurrent snapshot reads, and process-recreation recovery before publication and after publication but before cleanup. One test verifies the test server is actually standalone. Restricted production credentials generally cannot create these test databases; use a separate test server/identity.
 
 ## API examples
 

@@ -33,7 +33,7 @@ Stop the disposable host afterward. To check published output, publish the serve
 
 `phase5.cjs` runs real video/channel CRUD against the API and MongoDB. Use an **empty, disposable isolated database**, never the configured application database. The suite verifies revision zero/empty arrays before its first write and leaves synthetic bookmarks in that test database. Saves use unsupported example.com URLs; metadata/image failures and races are intercepted deterministically. Use the same Playwright/Edge setup above.
 
-Start a local test MongoDB on port 27025, bound to 127.0.0.1. Launch a disposable host with `ConnectionStrings__LastSeen2` pointing to a newly generated `lastseen2_test_<guid>` database on that server and `Authentication__AccessKey` set to a disposable test key. Run `dotnet run --project src/LastSeen2.Server --no-launch-profile --urls http://127.0.0.1:5195`.
+Start a local standalone test MongoDB on port 27025, bound to 127.0.0.1. No replica-set initialization is needed. Launch a disposable host with `ConnectionStrings__LastSeen2` pointing to a newly generated `lastseen2_test_<guid>` database on that server and `Authentication__AccessKey` set to a disposable test key. Run `dotnet run --project src/LastSeen2.Server --no-launch-profile --urls http://127.0.0.1:5195`.
 
 In the test terminal, set `NODE_PATH` as above, `PHASE5_TEST_URL` to `http://127.0.0.1:5195`, `PHASE5_TEST_KEY` to the same disposable key, and `PHASE5_ISOLATED` to `yes`. Run `node tests/browser/phase5.cjs`.
 
