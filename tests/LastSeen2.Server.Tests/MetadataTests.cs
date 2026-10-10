@@ -296,6 +296,21 @@ public sealed class MetadataTests
     }
 
     [Fact]
+    public async Task ClearingItemUrlClearsAutomaticThumbnailWithoutFetching()
+    {
+        using var handler = new Handler((_, _) => Task.FromResult(Response(Json)));
+        using var http = new ProviderHttpClient(new HttpClient(handler));
+        var service = new BoardService(new MemoryBoardStore(), TimeProvider.System, new MetadataService(http));
+        var request = new SaveVideoRequest(0, "Title", VideoUrl, ThumbnailMode.Automatic, "https://example.com/manual.jpg");
+        var board = await service.SaveVideo(null, request, default);
+        Assert.Equal(Thumbnail, board.Videos[0].AutomaticThumbnailUrl);
+        board = await service.SaveVideo(board.Videos[0].Id, request with { ExpectedRevision = 1, Url = "" }, default);
+        Assert.Null(board.Videos[0].AutomaticThumbnailUrl);
+        Assert.Equal(request.ManualThumbnailUrl, board.Videos[0].ManualThumbnailUrl);
+        Assert.Single(handler.Requests);
+    }
+
+    [Fact]
     public async Task StaleOrMissingWritesDoNotFetchAndLookupRaceStillChecksRevision()
     {
         var store = new MemoryBoardStore();

@@ -4,7 +4,7 @@ A single-user video and channel bookmark app. The implementation roadmap and seq
 
 ## Current status
 
-Phases 1–7 are complete: protected MongoDB CRUD, credential-free metadata, dark Sketchy UI, session/Lock, and persistent pointer/touch/keyboard ordering are implemented. The release suite passes 106 backend tests against isolated standalone MongoDB and browser checks against the published server, including restart persistence, outage recovery and key rotation. Production deployment remains an operator step.
+Phases 1–7 are complete: protected MongoDB CRUD, credential-free metadata, dark Sketchy UI, session/Lock, and persistent pointer/touch/keyboard ordering are implemented. The release suite passes 111 backend tests against isolated standalone MongoDB and browser checks against the published server, including restart persistence, outage recovery and key rotation. Production deployment remains an operator step.
 
 ## Projects
 
@@ -96,6 +96,8 @@ All bookmark handlers and metadata lookup are implemented. Metadata returns a no
 
 ### Board and mutation semantics
 
+Video and channel URLs may be empty; whitespace-only item URLs normalize to `""`. The `url` property is still required in mutation JSON and must be a string. URL-free items render as plain text and remain editable, deletable and reorderable. Metadata lookup requires a URL; automatic saves skip it when the item URL is blank. Clearing a video URL clears its automatic thumbnail while preserving any manual override. Manual thumbnail URLs retain their existing validation and Manual mode still requires one.
+
 - `BoardSnapshot` contains `revision`, ordered `videos`, and `channels` with ordered `frequent`, `infrequent`, and `archived` arrays. A channel's group must match its containing array.
 - Initial revision is zero. Every successful mutation checks `expectedRevision`, atomically increments it, and returns the authoritative snapshot. Reject stale writes with 409; never silently overwrite them.
 - IDs and timestamps are server-owned. Save payloads contain only editable data and the expected revision. Delete requests bind the revision query parameter to `DeleteBookmarkRequest`.
@@ -109,7 +111,7 @@ All bookmark handlers and metadata lookup are implemented. Metadata returns a no
 
 Use RFC Problem Details (`application/problem+json`), readable as the shared `ApiError` DTO. `code` is a stable machine identifier; validation errors also contain an `errors` map from JSON field names to message arrays. Never include credentials, connection strings, or raw exception details.
 
-The server enforces nonblank titles/names (up to 500 characters), absolute HTTP(S) URLs without embedded credentials (up to 4096 characters), known enum values, nonnegative incrementable revisions, item existence, complete reorder lists, and valid move indices. JSON constructor fields must be supplied, including nullable `manualThumbnailUrl`; malformed or missing fields return 400. Rejected mutations leave persisted bookmarks and revision unchanged. Kestrel limits request bodies to 1 MiB. Boards are limited to 10000 total bookmarks and 12 MiB of aggregate item BSON as application resource limits.
+The server enforces nonblank titles/names (up to 500 characters), optional item URLs (nonempty values must be absolute HTTP(S) without embedded credentials, up to 4096 characters), known enum values, nonnegative incrementable revisions, item existence, complete reorder lists, and valid move indices. JSON constructor fields must be supplied, including nullable `manualThumbnailUrl`; malformed or missing fields return 400. Rejected mutations leave persisted bookmarks and revision unchanged. Kestrel limits request bodies to 1 MiB. Boards are limited to 10000 total bookmarks and 12 MiB of aggregate item BSON as application resource limits.
 
 | Status | Code | Meaning |
 | --- | --- | --- |

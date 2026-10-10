@@ -56,6 +56,32 @@ public sealed class ApiTests
     internal static SaveChannelRequest Channel(long revision, string name, ChannelGroup group = ChannelGroup.Frequent) =>
         new(revision, name, "https://example.com/channel", group);
 
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task ItemUrlsCanBeBlankAddedAndCleared(string url)
+    {
+        using var root = new AppFactory();
+        using var factory = WithStore(root, new MemoryBoardStore());
+        using var client = Authorized(factory);
+        var board = await Board(await client.PostAsJsonAsync(ApiRoutes.Videos, Video(0) with { Url = url }));
+        var videoId = Assert.Single(board.Videos).Id;
+        Assert.Equal("", board.Videos[0].Url);
+        board = await Board(await client.PostAsJsonAsync(ApiRoutes.Channels, Channel(1, "Note") with { Url = url }));
+        var channelId = Assert.Single(board.Channels.Frequent).Id;
+        Assert.Equal("", board.Channels.Frequent[0].Url);
+        board = await Board(await client.PutAsJsonAsync($"/api/videos/{videoId}", Video(2)));
+        Assert.Equal(Video(0).Url, board.Videos[0].Url);
+        board = await Board(await client.PutAsJsonAsync($"/api/channels/{channelId}", Channel(3, "Note")));
+        Assert.Equal(Channel(0, "Note").Url, board.Channels.Frequent[0].Url);
+        await Board(await client.PutAsJsonAsync($"/api/videos/{videoId}", Video(4) with { Url = url }));
+        await Board(await client.PutAsJsonAsync($"/api/channels/{channelId}", Channel(5, "Note") with { Url = url }));
+        board = await Board(await client.GetAsync(ApiRoutes.Board));
+        Assert.Equal("", board.Videos[0].Url);
+        Assert.Equal("", board.Channels.Frequent[0].Url);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsJsonAsync(ApiRoutes.Metadata, new MetadataRequest(url))).StatusCode);
+    }
+
     [Fact]
     public async Task VideoCrudOrderingManualOverridesAndRevisions()
     {
@@ -115,6 +141,8 @@ public sealed class ApiTests
     [InlineData("x", "https://user:password@example.com", "Automatic", null)]
     [InlineData("x", "relative/path", "Automatic", null)]
     [InlineData("x", "https://example.com", "Manual", null)]
+    [InlineData("x", "", "Manual", "")]
+    [InlineData("x", "", "Automatic", " ")]
     [InlineData("x", "https://example.com", "Automatic", "file:///image")]
     [InlineData("x", "https://example.com", "Unknown", null)]
     public async Task InvalidVideoDoesNotChangeBoard(string title, string url, string mode, string? manual)

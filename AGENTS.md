@@ -32,7 +32,7 @@ At the end of Phase 7 on 2026-10-10:
 - `BookmarkApi` implements protected authentication checks, board reads, CRUD, and ordering. Metadata is protected and returns credential-free YouTube/Twitch suggestions with nonfatal fallback.
 - Unknown `/api` routes return 404 Problem Details, including paths containing dots. Keep them out of the SPA HTML fallback.
 - Startup requires a valid `ConnectionStrings:LastSeen2` URI with a database name, a valid collection, and `Authentication:AccessKey`. Board operations connect lazily; outages return safe 503 responses.
-- The standalone item-storage suite has 106 passing tests (3 contract, 103 server), including five real isolated MongoDB integration tests. Without `LASTSEEN2_TEST_MONGODB`, those five tests are explicitly skipped. Release publish, production HTTP assets, process restart persistence, and real database-outage checks passed. Rerun relevant checks after changes.
+- The standalone item-storage suite has 111 passing tests (3 contract, 108 server), including five real isolated MongoDB integration tests. Without `LASTSEEN2_TEST_MONGODB`, those five tests are explicitly skipped. Release publish, production HTTP assets, process restart persistence, and real database-outage checks passed. Rerun relevant checks after changes.
 
 ## Project structure and local startup
 
@@ -106,6 +106,7 @@ Publish the server, not just the client. `artifacts/` is ignored and suitable fo
 - Support video reordering and channel reordering/moves between Frequent, Infrequent, and Archived. Channel move indices are measured after removing the moved item. Video reorder payloads contain all current IDs exactly once.
 - Metadata must be credential-free: YouTube oEmbed and best-effort public Twitch metadata. Manual thumbnails are image URLs, not uploads. Provider lookup failures must not block an otherwise valid bookmark save. Preserve manual overrides until explicitly cleared. Keep server fetches restricted and protected against private-network access.
 - Dark-only Bootswatch Sketchy UI follows the reference image: Saved Videos at roughly two-thirds width, Channels at one-third, stacked on mobile. Default new channels to Frequent. Include touch/keyboard alternatives to drag-and-drop.
+- Video/channel URLs are optional: blank or whitespace-only strings persist as empty strings; JSON `url` remains required and null is invalid. Render URL-free items as text, skip automatic metadata lookup, and clear stale automatic thumbnails when a URL is removed. Manual thumbnail and metadata-request URLs still require valid HTTP(S).
 - Duplicate URLs are allowed; external links open in a new tab. Search, tags, watched-state tracking, uploads, embedded playback, import/export, provider credentials, and background synchronization are outside the current plan.
 
 ## Maintenance entry point

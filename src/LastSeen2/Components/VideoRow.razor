@@ -2,9 +2,16 @@
 <li class="video-row" data-id="@Video.Id">
     <img src="@Preview" alt="" width="144" height="81" loading="lazy" referrerpolicy="no-referrer" @onerror="() => failed = true" />
     <div class="video-copy">
-        <ProviderIcon Url="@Video.Url" />
-        <a class="bookmark-title" href="@Video.Url" target="_blank" rel="noopener noreferrer">@Video.Title<span class="visually-hidden"> (opens in a new tab)</span></a>
-        <span class="bookmark-url">@Video.Url</span>
+        @if (string.IsNullOrEmpty(Video.Url))
+        {
+            <span class="bookmark-title">@Video.Title</span>
+        }
+        else
+        {
+            <ProviderIcon Url="@Video.Url" />
+            <a class="bookmark-title" href="@Video.Url" target="_blank" rel="noopener noreferrer">@Video.Title<span class="visually-hidden"> (opens in a new tab)</span></a>
+            <span class="bookmark-url">@Video.Url</span>
+        }
     </div>
     <OrderControls Name="@Video.Title" Index="Index" Count="Count" Disabled="Disabled" OnMove="OnMove" />
     <div class="item-actions">

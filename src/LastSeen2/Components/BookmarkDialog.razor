@@ -13,7 +13,8 @@
             @if (!Delete)
             {
                 <label for="bookmark-url">URL</label>
-                <input id="bookmark-url" class="form-control" type="url" required maxlength="4096" value="@url" @oninput="UrlChanged" />
+                <p id="bookmark-url-help" class="help-text">Optional.</p>
+                <input id="bookmark-url" class="form-control" type="url" maxlength="4096" value="@url" @oninput="UrlChanged" aria-describedby="bookmark-url-help" />
                 <label for="bookmark-name">@(IsVideo ? "Title" : "Name")</label>
                 <input id="bookmark-name" class="form-control" required maxlength="500" value="@name" @oninput="NameChanged" />
                 @if (IsVideo)
@@ -133,8 +134,8 @@
     private async Task SaveAsync()
     {
         if (saving || review || missing || Session.Key is null) return;
-        if (!Delete && (string.IsNullOrWhiteSpace(name) || !ValidUrl(url) || (IsVideo && !string.IsNullOrWhiteSpace(manual) && !ValidUrl(manual)) || (IsVideo && mode == ThumbnailMode.Manual && !ValidUrl(manual))))
-        { error = "Enter a title/name and valid HTTP(S) URLs without credentials."; return; }
+        if (!Delete && (string.IsNullOrWhiteSpace(name) || (!string.IsNullOrWhiteSpace(url) && !ValidUrl(url)) || (IsVideo && !string.IsNullOrWhiteSpace(manual) && !ValidUrl(manual)) || (IsVideo && mode == ThumbnailMode.Manual && !ValidUrl(manual))))
+        { error = "Enter a title/name. URLs, when provided, must be valid HTTP(S) URLs without credentials."; return; }
         saving = true;
         lookupVersion++;
         looking = false;

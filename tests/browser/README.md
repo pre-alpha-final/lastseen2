@@ -39,7 +39,7 @@ In the test terminal, set `NODE_PATH` as above, `PHASE5_TEST_URL` to `http://127
 
 For each repeat run, restart the host with a fresh generated database name. The script does not clear or drop databases. Stop your disposable processes afterward. Published checks use the same settings with the published server instead of `dotnet run`.
 
-Coverage: persisted CRUD/reload and add/edit ordering; default/group changes; cancel/Escape and deletion confirmation; modal focus containment/restoration; keyboard save/delete; manual thumbnail preservation/clearing; real stale revisions and explicit reload/review; missing bookmarks; recoverable save errors; touched-title and changed-URL metadata races; partial/unavailable/network metadata; credential-bearing URL validation; broken previews; duplicate-submission prevention; 401 session clearing; key isolation; 320/390px overflow checks.
+Coverage: persisted CRUD/reload and add/edit ordering; URL-free video/channel create, add/clear URL and non-link rendering after reload; default/group changes; cancel/Escape and deletion confirmation; modal focus containment/restoration; keyboard save/delete; manual thumbnail preservation/clearing; real stale revisions and explicit reload/review; missing bookmarks; recoverable save errors; touched-title and changed-URL metadata races; partial/unavailable/network metadata; credential-bearing URL validation; broken previews; duplicate-submission prevention; 401 session clearing; key isolation; 320/390px overflow checks.
 
 Screenshots: `docs/screenshots/phase5-board.png`, `phase5-video-dialog.png`, and `phase5-mobile-dialog.png`. Dialog scrolling keeps controls reachable at narrow heights. Ordering gestures are covered by Phase 6 below; other browser engines remain unverified.
 

@@ -40,6 +40,9 @@ public sealed class BoardService(IBoardStore store, TimeProvider clock, IMetadat
         return value.Trim();
     }
 
+    private static string ItemUrl(string? value) =>
+        value is not null && string.IsNullOrWhiteSpace(value) ? "" : Url(value, "url");
+
     private static void Group(ChannelGroup group, string field)
     {
         if (!Enum.IsDefined(group)) throw ApiFailure.Invalid(field, "Unknown channel group");
@@ -48,7 +51,7 @@ public sealed class BoardService(IBoardStore store, TimeProvider clock, IMetadat
     public Task<BoardSnapshot> SaveVideo(Guid? id, SaveVideoRequest request, CancellationToken ct)
     {
         var title = Text(request.Title, "title");
-        var url = Url(request.Url, "url");
+        var url = ItemUrl(request.Url);
         if (!Enum.IsDefined(request.ThumbnailMode)) throw ApiFailure.Invalid("thumbnailMode", "Unknown thumbnail mode");
         var manual = request.ManualThumbnailUrl is null ? null : Url(request.ManualThumbnailUrl, "manualThumbnailUrl");
         if (request.ThumbnailMode == ThumbnailMode.Manual && manual is null)
@@ -57,7 +60,7 @@ public sealed class BoardService(IBoardStore store, TimeProvider clock, IMetadat
         {
             var old = id is null ? null : board.Videos.FirstOrDefault(v => v.Id == id) ?? throw ApiFailure.Missing();
             var automatic = old?.Url == url ? old.AutomaticThumbnailUrl : null;
-            if (request.ThumbnailMode == ThumbnailMode.Automatic)
+            if (request.ThumbnailMode == ThumbnailMode.Automatic && url.Length > 0)
             {
                 var result = await metadata.LookupAsync(url, ct);
                 automatic = result.ThumbnailUrl ?? automatic;
@@ -99,7 +102,7 @@ public sealed class BoardService(IBoardStore store, TimeProvider clock, IMetadat
     public Task<BoardSnapshot> SaveChannel(Guid? id, SaveChannelRequest request, CancellationToken ct)
     {
         var name = Text(request.Name, "name");
-        var url = Url(request.Url, "url");
+        var url = ItemUrl(request.Url);
         Group(request.Group, "group");
         return Mutate(request.ExpectedRevision, board =>
         {

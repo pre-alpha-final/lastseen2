@@ -91,6 +91,21 @@ if (!base || !key || process.env.PHASE5_ISOLATED !== 'yes') throw Error('Set PHA
  // Deleted elsewhere: stale deletion cannot be retried against a missing item.
  await button('Delete video: My own title').click();board=await api();const removed=board.videos.find(v=>v.title==='My own title');await api(`/videos/${removed.id}?expectedRevision=${board.revision}`,'DELETE');
  await button('Delete bookmark').click();await button('Reload and review').click();await page.getByText('This bookmark has been deleted.',{exact:false}).waitFor();assert(await button('Delete bookmark').isDisabled());await cancel();
+ // URL-free items render as text, persist, and can gain/lose a link through editing.
+ await page.setViewportSize({width:1536,height:1024});
+ for(const [kind,title] of [['Video','Video without URL'],['Channel','Channel without URL']]) {
+  await button('+ Add '+kind).click();await field(kind==='Video'?'Title':'Name').fill(title);
+  if(kind==='Video') assert(await button('Look up metadata').isDisabled());
+  await save();
+  const item=()=>page.locator(kind==='Video'?'.video-row':'.channel-list li').filter({hasText:title});
+  assert.equal(await item().locator('a').count(),0);
+  await button('Edit '+kind.toLowerCase()+': '+title).click();await field('URL').fill('https://example.com/item');await save();
+  assert.equal(await item().locator('a').getAttribute('href'),'https://example.com/item');
+  await button('Edit '+kind.toLowerCase()+': '+title).click();await field('URL').fill('');await save();
+  await page.reload();await button('+ Add Video').waitFor();assert.equal(await item().locator('a').count(),0);
+  const persisted=await api();assert.equal((kind==='Video'?persisted.videos:persisted.channels.frequent).find(v=>(v.title||v.name)===title).url,'');
+  await button('Delete '+kind.toLowerCase()+': '+title).click();await button('Delete bookmark').click();await closed();
+ }
  // Unauthorized mutation clears the modal, board and stored session.
  await button('Edit video: Recovered draft').click();await page.route('**/api/videos/*',r=>r.fulfill({status:401}));await button('Save').click();
  await page.getByRole('heading',{name:'Unlock board'}).waitFor();await closed();assert.equal(await page.evaluate(()=>sessionStorage.getItem('lastseen2.accessKey')),null);
