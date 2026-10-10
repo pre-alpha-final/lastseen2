@@ -42,3 +42,29 @@ For each repeat run, restart the host with a fresh generated database name. The 
 Coverage: persisted CRUD/reload and add/edit ordering; default/group changes; cancel/Escape and deletion confirmation; modal focus containment/restoration; keyboard save/delete; manual thumbnail preservation/clearing; real stale revisions and explicit reload/review; missing bookmarks; recoverable save errors; touched-title and changed-URL metadata races; partial/unavailable/network metadata; credential-bearing URL validation; broken previews; duplicate-submission prevention; 401 session clearing; key isolation; 320/390px overflow checks.
 
 Screenshots: `docs/screenshots/phase5-board.png`, `phase5-video-dialog.png`, and `phase5-mobile-dialog.png`. Dialog scrolling keeps controls reachable at narrow heights. Phase 6 ordering gestures and broader cross-browser coverage remain deferred.
+
+
+## Phase 6 ordering checks
+
+`phase6.cjs` uses the real revision-aware API and a fresh, empty, disposable standalone MongoDB database. It refuses to write unless `PHASE6_ISOLATED=yes` and the board is revision zero with empty lists. Never point it at application data. It does not clear or drop databases.
+
+Use the Playwright/Edge setup above. Start a localhost-only standalone MongoDB (verification used port 27029), then run the server with `ConnectionStrings__LastSeen2` pointing to a new `lastseen2_test_<guid>` database and a disposable `Authentication__AccessKey`. To avoid an existing Debug host's output locks, Release can be used:
+
+```powershell
+dotnet build src/LastSeen2.slnx -c Release --no-restore
+dotnet run --project src/LastSeen2.Server -c Release --no-build --no-launch-profile --urls http://127.0.0.1:5196
+```
+
+In the browser-test terminal:
+
+```powershell
+$env:NODE_PATH = Join-Path $pwd 'artifacts/browser-tools/node_modules'
+$env:PHASE6_TEST_URL = 'http://127.0.0.1:5196'
+# Set PHASE6_TEST_KEY to the disposable host's access key.
+$env:PHASE6_ISOLATED = 'yes'
+node tests/browser/phase6.cjs
+```
+
+Use a new database for every run; stop test hosts and MongoDB afterward. For published verification, publish the server and run its DLL from the publish directory with the same isolated settings. Phase 4 can share this host because its board reads are fixtures; Phase 5 requires its own fresh database.
+
+Coverage: real pointer and Chromium-emulated touch drag gestures; keyboard up/down and native group selection; same-list ordering; moves into/out of empty groups and updated counts; saved reload order; video/channel edit-order rules after manual moves; safe link activation; duplicate-move suppression; real competing-writer conflict; rejected and committed-but-lost responses; explicit reload/review; unauthorized session clearing; late save after Lock; 390/320px overflow. The suite checks DOM order against persisted order and waits for the rendered revision, catching Blazor component-boundary corruption. Screenshots: `docs/screenshots/phase6-desktop.png` and `phase6-mobile.png`. Physical touchscreen devices and non-Chromium engines were not tested.

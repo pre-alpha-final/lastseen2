@@ -5,24 +5,25 @@
     {
         <p class="group-empty">No @Group.ToString().ToLowerInvariant() channels yet.</p>
     }
-    else
-    {
-        <ul class="channel-list">
-            @foreach (var channel in Channels)
-            {
-                <li @key="channel.Id"><ProviderIcon Url="@channel.Url" /><a href="@channel.Url" target="_blank" rel="noopener noreferrer">@channel.Name<span class="visually-hidden"> (opens in a new tab)</span></a><div class="item-actions">
-                    <button class="btn btn-outline-light" aria-label="@($"Edit channel: {channel.Name}")" @onclick="() => OnEdit.InvokeAsync(channel)">✎</button>
-                    <button class="btn delete-button" aria-label="@($"Delete channel: {channel.Name}")" @onclick="() => OnDelete.InvokeAsync(channel)">×</button>
-                </div></li>
-            }
-        </ul>
-    }
+    <ul class="channel-list" data-order-list="channels" data-group="@Group">
+        @foreach (var channel in Channels)
+        {
+            <li @key="channel.Id" data-id="@channel.Id"><ProviderIcon Url="@channel.Url" /><a href="@channel.Url" target="_blank" rel="noopener noreferrer">@channel.Name<span class="visually-hidden"> (opens in a new tab)</span></a><div class="item-actions">
+                <button disabled="@Disabled" class="btn btn-outline-light" aria-label="@($"Edit channel: {channel.Name}")" @onclick="() => OnEdit.InvokeAsync(channel)">✎</button>
+                <button disabled="@Disabled" class="btn delete-button" aria-label="@($"Delete channel: {channel.Name}")" @onclick="() => OnDelete.InvokeAsync(channel)">×</button>
+            </div>
+            <OrderControls Name="@channel.Name" Index="Array.IndexOf(Channels, channel)" Count="Channels.Length" Group="Group" Disabled="Disabled" OnMove="i => OnMove.InvokeAsync((channel.Id, Group, i))" OnGroup="g => OnMove.InvokeAsync((channel.Id, g, 0))" />
+            </li>
+        }
+    </ul>
 </section>
 @code {
     [Parameter] public ChannelGroup Group { get; set; }
     [Parameter, EditorRequired] public ChannelBookmark[] Channels { get; set; } = [];
     [Parameter] public EventCallback<ChannelBookmark> OnEdit { get; set; }
     [Parameter] public EventCallback<ChannelBookmark> OnDelete { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public EventCallback<(Guid Id, ChannelGroup Group, int Index)> OnMove { get; set; }
     private string HeadingId => $"group-{Group}";
     private string Symbol => Group switch { ChannelGroup.Frequent => "☆", ChannelGroup.Infrequent => "◷", _ => "▱" };
 }

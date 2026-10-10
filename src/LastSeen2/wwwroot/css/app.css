@@ -101,3 +101,16 @@ h2 { font-size: 1.85rem; margin: 0; }
 
 .heading-actions { display: flex; align-items: center; gap: 10px; margin-left: auto; }
 .provider-icon svg { width: 22px; height: 22px; }
+
+.order-controls { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.order-controls .btn { min-width: 36px; padding: 4px 8px; }
+.drag-handle { cursor: grab; touch-action: none; user-select: none; padding: 8px; font-size: 1.5rem; color: #b7c1cf; }
+[data-order-disabled="true"] .drag-handle { cursor: default; opacity: .4; }
+.order-controls .form-select { width: auto; max-width: 100%; min-height: 44px; background-color: #0e141b; color: #f0f2f5; border-color: #758595; }
+.channel-list { min-height: 52px; }
+.channel-list li { flex-wrap: wrap; }
+.channel-list .order-controls { width: 100%; }
+.order-ghost { outline: 3px dashed #8bd3ff; background: #25445b !important; opacity: .55; }
+.order-chosen { border-color: #8bd3ff; }
+.order-status:empty { display: none; }
+@media (max-width: 1200px) { .video-row { flex-wrap: wrap; } .video-row .order-controls { margin-left: auto; } }

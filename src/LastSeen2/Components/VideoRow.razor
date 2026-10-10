@@ -1,20 +1,25 @@
 @using LastSeen2.Contracts
-<li class="video-row">
+<li class="video-row" data-id="@Video.Id">
     <img src="@Preview" alt="" width="144" height="81" loading="lazy" referrerpolicy="no-referrer" @onerror="() => failed = true" />
     <div class="video-copy">
         <ProviderIcon Url="@Video.Url" />
         <a class="bookmark-title" href="@Video.Url" target="_blank" rel="noopener noreferrer">@Video.Title<span class="visually-hidden"> (opens in a new tab)</span></a>
         <span class="bookmark-url">@Video.Url</span>
     </div>
+    <OrderControls Name="@Video.Title" Index="Index" Count="Count" Disabled="Disabled" OnMove="OnMove" />
     <div class="item-actions">
-        <button class="btn btn-outline-light" aria-label="@($"Edit video: {Video.Title}")" @onclick="() => OnEdit.InvokeAsync(Video)">✎</button>
-        <button class="btn delete-button" aria-label="@($"Delete video: {Video.Title}")" @onclick="() => OnDelete.InvokeAsync(Video)">×</button>
+        <button disabled="@Disabled" class="btn btn-outline-light" aria-label="@($"Edit video: {Video.Title}")" @onclick="() => OnEdit.InvokeAsync(Video)">✎</button>
+        <button disabled="@Disabled" class="btn delete-button" aria-label="@($"Delete video: {Video.Title}")" @onclick="() => OnDelete.InvokeAsync(Video)">×</button>
     </div>
 </li>
 @code {
     [Parameter, EditorRequired] public VideoBookmark Video { get; set; } = default!;
     [Parameter] public EventCallback<VideoBookmark> OnEdit { get; set; }
     [Parameter] public EventCallback<VideoBookmark> OnDelete { get; set; }
+    [Parameter] public int Index { get; set; }
+    [Parameter] public int Count { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public EventCallback<int> OnMove { get; set; }
     private bool failed;
     private string? previous;
     private string? Selected => Video.ThumbnailMode == ThumbnailMode.Manual ? Video.ManualThumbnailUrl : Video.AutomaticThumbnailUrl;

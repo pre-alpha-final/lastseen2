@@ -4,6 +4,8 @@
 @using LastSeen2.Services
 @inject BoardApiClient Api
 @inject AccessSession Session
+@inject IJSRuntime JS
+@implements IAsyncDisposable
 
 <PageTitle>LastSeen2</PageTitle>
 <a class="skip-link" href="#main">Skip to content</a>
@@ -38,31 +40,32 @@
     }
     else
     {
-        <div class="board-toolbar"><button class="btn btn-outline-light" @onclick="LoadBoardAsync" disabled="@busy">Refresh</button></div>
+        <div class="board-toolbar"><button class="btn btn-outline-light" @onclick="LoadBoardAsync" disabled="@(busy || ordering)">Refresh</button></div>
         @if (error is not null)
         {
-            <div class="state-panel error-message" role="alert"><p>@error</p><button class="btn btn-primary" @onclick="LoadBoardAsync" disabled="@busy">Retry loading board</button></div>
+            <div class="state-panel error-message" role="alert"><p>@error</p><button class="btn btn-primary" @onclick="LoadBoardAsync" disabled="@busy">@(orderReview ? "Reload and review" : "Retry loading board")</button></div>
         }
+        <p class="order-status" role="status">@orderStatus</p>
         @if (busy) { <p class="loading-note" role="status">Loading bookmarks…</p> }
         @if (board is not null)
         {
-            <div class="board-grid" aria-busy="@busy.ToString().ToLowerInvariant()">
+            <div class="board-grid" data-revision="@board.Revision" @ref="boardElement" data-order-disabled="@((ControlsDisabled || dialogOpen).ToString().ToLowerInvariant())" aria-busy="@ordering.ToString().ToLowerInvariant()">
                 <section class="panel videos-panel" aria-labelledby="videos-heading">
-                    <div class="section-heading"><h2 id="videos-heading"><svg class="section-symbol" viewBox="0 0 24 28" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 2h18v24l-9-7-9 7Z" /></svg> Saved Videos</h2><div class="heading-actions"><span class="count" aria-label="@($"{board.Videos.Length} saved videos")">@board.Videos.Length</span><button class="btn btn-primary" @onclick="() => OpenVideo(null)">+ Add Video</button></div></div>
+                    <div class="section-heading"><h2 id="videos-heading"><svg class="section-symbol" viewBox="0 0 24 28" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 2h18v24l-9-7-9 7Z" /></svg> Saved Videos</h2><div class="heading-actions"><span class="count" aria-label="@($"{board.Videos.Length} saved videos")">@board.Videos.Length</span><button disabled="@ControlsDisabled" class="btn btn-primary" @onclick="() => OpenVideo(null)">+ Add Video</button></div></div>
                     @if (board.Videos.Length == 0)
                     {
                         <div class="empty-videos"><span aria-hidden="true">▷</span><p>No saved videos yet.</p></div>
                     }
                     else
                     {
-                        <ul class="video-list">@foreach (var video in board.Videos) { <VideoRow @key="video.Id" Video="video" OnEdit="v => OpenVideo(v)" OnDelete="v => OpenVideo(v, true)" /> }</ul>
+                        <ul class="video-list" data-order-list="videos">@foreach (var video in board.Videos) { <VideoRow @key="video.Id" Video="video" Index="Array.IndexOf(board.Videos, video)" Count="board.Videos.Length" Disabled="ControlsDisabled" OnMove="i => MoveVideoAsync(video.Id, i)" OnEdit="v => OpenVideo(v)" OnDelete="v => OpenVideo(v, true)" /> }</ul>
                     }
                 </section>
                 <section class="panel channels-panel" aria-labelledby="channels-heading">
-                    <div class="section-heading"><h2 id="channels-heading"><span class="section-symbol" aria-hidden="true">☷</span> Channels</h2><div class="heading-actions"><span class="count" aria-label="@($"{ChannelCount} channels")">@ChannelCount</span><button class="btn btn-primary" @onclick="() => OpenChannel(null)">+ Add Channel</button></div></div>
-                    <ChannelSection Group="ChannelGroup.Frequent" OnEdit="c => OpenChannel(c)" OnDelete="c => OpenChannel(c, true)" Channels="board.Channels.Frequent" />
-                    <ChannelSection Group="ChannelGroup.Infrequent" OnEdit="c => OpenChannel(c)" OnDelete="c => OpenChannel(c, true)" Channels="board.Channels.Infrequent" />
-                    <ChannelSection Group="ChannelGroup.Archived" OnEdit="c => OpenChannel(c)" OnDelete="c => OpenChannel(c, true)" Channels="board.Channels.Archived" />
+                    <div class="section-heading"><h2 id="channels-heading"><span class="section-symbol" aria-hidden="true">☷</span> Channels</h2><div class="heading-actions"><span class="count" aria-label="@($"{ChannelCount} channels")">@ChannelCount</span><button disabled="@ControlsDisabled" class="btn btn-primary" @onclick="() => OpenChannel(null)">+ Add Channel</button></div></div>
+                    <ChannelSection Disabled="ControlsDisabled" OnMove="MoveChannelAsync" Group="ChannelGroup.Frequent" OnEdit="c => OpenChannel(c)" OnDelete="c => OpenChannel(c, true)" Channels="board.Channels.Frequent" />
+                    <ChannelSection Disabled="ControlsDisabled" OnMove="MoveChannelAsync" Group="ChannelGroup.Infrequent" OnEdit="c => OpenChannel(c)" OnDelete="c => OpenChannel(c, true)" Channels="board.Channels.Infrequent" />
+                    <ChannelSection Disabled="ControlsDisabled" OnMove="MoveChannelAsync" Group="ChannelGroup.Archived" OnEdit="c => OpenChannel(c)" OnDelete="c => OpenChannel(c, true)" Channels="board.Channels.Archived" />
                 </section>
             </div>
         }
@@ -74,11 +77,81 @@
 </main>
 
 @code {
+    private ElementReference boardElement;
+    private IJSObjectReference? module;
+    private DotNetObjectReference<Home>? reference;
+    private bool ordering, orderReview, disposed;
+    private string? orderStatus;
+    private bool ControlsDisabled => busy || ordering || orderReview;
+
+    [JSInvokable]
+    public Task DropAsync(string kind, string id, string group, int index) =>
+        Guid.TryParse(id, out var itemId) && !ControlsDisabled && !dialogOpen
+            ? kind == "videos" ? MoveVideoAsync(itemId, index)
+                : Enum.TryParse<ChannelGroup>(group, out var destination) ? MoveChannelAsync((itemId, destination, index)) : Task.CompletedTask
+            : Task.CompletedTask;
+
+    private Task MoveVideoAsync(Guid id, int index)
+    {
+        if (board is null || ControlsDisabled) return Task.CompletedTask;
+        var ids = board.Videos.Select(v => v.Id).ToList();
+        var old = ids.IndexOf(id);
+        if (old < 0 || index < 0 || index >= ids.Count || old == index) return Task.CompletedTask;
+        ids.RemoveAt(old); ids.Insert(index, id);
+        var request = new ReorderVideosRequest(board.Revision, ids.ToArray());
+        return SaveOrderAsync(key => Api.ReorderVideosAsync(key, request));
+    }
+
+    private Task MoveChannelAsync((Guid Id, ChannelGroup Group, int Index) move)
+    {
+        if (board is null || ControlsDisabled) return Task.CompletedTask;
+        var request = new MoveChannelRequest(board.Revision, move.Group, move.Index);
+        return SaveOrderAsync(key => Api.MoveChannelAsync(key, move.Id, request));
+    }
+
+    private async Task SaveOrderAsync(Func<string, Task<BoardSnapshot>> save)
+    {
+        if (Session.Key is not { } key || disposed) return;
+        var attempt = generation;
+        ordering = true;
+        orderStatus = "Saving order…";
+        StateHasChanged();
+        try
+        {
+            var result = await save(key);
+            if (attempt != generation || disposed) return;
+            ApplyBoard(result);
+            orderStatus = "Order saved.";
+        }
+        catch (ApiClientException ex)
+        {
+            if (attempt != generation || disposed) return;
+            // A failed response may follow a committed write. Require an explicit fresh read.
+            board = null;
+            orderReview = true;
+            orderStatus = null;
+            await HandleErrorAsync(ex);
+        }
+        finally { if (attempt == generation && !disposed) { ordering = false; StateHasChanged(); } }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        disposed = true;
+        generation++;
+        if (module is not null)
+        {
+            try { await module.InvokeVoidAsync("dispose"); await module.DisposeAsync(); }
+            catch (JSDisconnectedException) { }
+        }
+        reference?.Dispose();
+    }
+
     private bool dialogOpen, editingVideo, deleting;
     private VideoBookmark? selectedVideo;
     private ChannelBookmark? selectedChannel;
-    private void OpenVideo(VideoBookmark? value, bool delete = false) { selectedVideo = value; selectedChannel = null; editingVideo = true; deleting = delete; dialogOpen = true; }
-    private void OpenChannel(ChannelBookmark? value, bool delete = false) { selectedChannel = value; selectedVideo = null; editingVideo = false; deleting = delete; dialogOpen = true; }
+    private void OpenVideo(VideoBookmark? value, bool delete = false) { if (ControlsDisabled) return; selectedVideo = value; selectedChannel = null; editingVideo = true; deleting = delete; dialogOpen = true; }
+    private void OpenChannel(ChannelBookmark? value, bool delete = false) { if (ControlsDisabled) return; selectedChannel = value; selectedVideo = null; editingVideo = false; deleting = delete; dialogOpen = true; }
     private void CloseDialog() => dialogOpen = false;
     private void ApplyBoard(BoardSnapshot value) { board = value; error = null; }
     private string enteredKey = "";
@@ -90,9 +163,11 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!firstRender) return;
-        await RestoreAsync();
-        StateHasChanged();
+        if (disposed) return;
+        module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./ordering.js");
+        reference ??= DotNetObjectReference.Create(this);
+        await module.InvokeVoidAsync("sync", board is null ? null : boardElement, reference);
+        if (firstRender) { await RestoreAsync(); StateHasChanged(); }
     }
 
     private async Task RestoreAsync()
@@ -145,10 +220,11 @@
         busy = true;
         error = null;
         board = null;
+        orderStatus = null;
         try
         {
             var result = await Api.GetBoardAsync(Session.Key);
-            if (attempt == generation && unlocked) board = result;
+            if (attempt == generation && unlocked) { board = result; orderReview = false; }
         }
         catch (ApiClientException ex) { if (attempt == generation) await HandleErrorAsync(ex); }
         finally { if (attempt == generation) busy = false; }
@@ -163,6 +239,9 @@
     private async Task LockAsync()
     {
         generation++;
+        ordering = false;
+        orderReview = false;
+        orderStatus = null;
         dialogOpen = false;
         unlocked = false;
         board = null;

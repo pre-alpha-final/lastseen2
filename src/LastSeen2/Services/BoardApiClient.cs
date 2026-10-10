@@ -25,6 +25,12 @@ public sealed class BoardApiClient(HttpClient http)
     public Task<MetadataResult> MetadataAsync(string key, string url) =>
         ReadAsync<MetadataResult>(HttpMethod.Post, ApiRoutes.Metadata, key, new MetadataRequest(url));
 
+    public Task<BoardSnapshot> ReorderVideosAsync(string key, ReorderVideosRequest value) =>
+        ReadAsync<BoardSnapshot>(HttpMethod.Put, ApiRoutes.Videos + "/reorder", key, value);
+
+    public Task<BoardSnapshot> MoveChannelAsync(string key, Guid id, MoveChannelRequest value) =>
+        ReadAsync<BoardSnapshot>(HttpMethod.Put, ApiRoutes.Channels + $"/{id:D}/move", key, value);
+
     private async Task<T> ReadAsync<T>(HttpMethod method, string path, string key, object? body = null)
     {
         using var response = await SendAsync(method, path, key, body);
