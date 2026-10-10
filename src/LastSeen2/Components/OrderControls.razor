@@ -1,15 +1,21 @@
 @using LastSeen2.Contracts
-<div class="order-controls">
-    <span class="drag-handle" title="Drag to move" aria-hidden="true">⠿</span>
-    <button class="btn btn-outline-light" disabled="@(Disabled || Index == 0)" aria-label="@($"Move {Name} up")" @onclick="() => OnMove.InvokeAsync(Index - 1)">↑</button>
-    <button class="btn btn-outline-light" disabled="@(Disabled || Index == Count - 1)" aria-label="@($"Move {Name} down")" @onclick="() => OnMove.InvokeAsync(Index + 1)">↓</button>
-    @if (Group is not null)
-    {
-        <select class="form-select" aria-label="@($"Move {Name} to group")" value="@Group" disabled="@Disabled" @onchange="ChangeGroup">
-            @foreach (var group in Enum.GetValues<ChannelGroup>()) { <option value="@group">@group</option> }
-        </select>
-    }
-</div>
+<details class="order-controls" open="@expanded" @onkeydown="HandleKey">
+    <summary @ref="handle" class="drag-handle" role="button" aria-expanded="@expanded.ToString().ToLowerInvariant()" aria-label="@($"Move {Name}")" title="Drag to reorder, or open move controls" @onclick="Toggle" @onclick:preventDefault><UiIcon Name="grip" /></summary>
+    <div class="move-options">
+        <span class="move-label">Move</span>
+        <div class="move-buttons">
+            <button class="btn btn-outline-light" disabled="@(Disabled || Index == 0)" aria-label="@($"Move {Name} up")" @onclick="() => MoveAsync(Index - 1)">↑ Up</button>
+            <button class="btn btn-outline-light" disabled="@(Disabled || Index == Count - 1)" aria-label="@($"Move {Name} down")" @onclick="() => MoveAsync(Index + 1)">↓ Down</button>
+        </div>
+        @if (Group is not null)
+        {
+            <label class="move-label" for="@SelectId">Group</label>
+            <select id="@SelectId" class="form-select" aria-label="@($"Move {Name} to group")" value="@Group" disabled="@Disabled" @onchange="ChangeGroup">
+                @foreach (var group in Enum.GetValues<ChannelGroup>()) { <option value="@group">@group</option> }
+            </select>
+        }
+    </div>
+</details>
 @code {
     [Parameter] public string Name { get; set; } = "";
     [Parameter] public int Index { get; set; }
@@ -18,5 +24,22 @@
     [Parameter] public ChannelGroup? Group { get; set; }
     [Parameter] public EventCallback<int> OnMove { get; set; }
     [Parameter] public EventCallback<ChannelGroup> OnGroup { get; set; }
-    private Task ChangeGroup(ChangeEventArgs args) => Enum.TryParse<ChannelGroup>(args.Value?.ToString(), out var group) ? OnGroup.InvokeAsync(group) : Task.CompletedTask;
+    private readonly string SelectId = $"move-group-{Guid.NewGuid():N}";
+    private ElementReference handle;
+    private bool expanded;
+    private void Toggle() => expanded = !expanded;
+    private async Task CloseAsync() { expanded = false; await handle.FocusAsync(); }
+    private async Task HandleKey(KeyboardEventArgs args) { if (args.Key == "Escape") await CloseAsync(); }
+    private async Task MoveAsync(int index)
+    {
+        if (Disabled) return;
+        await CloseAsync();
+        await OnMove.InvokeAsync(index);
+    }
+    private async Task ChangeGroup(ChangeEventArgs args)
+    {
+        if (Disabled || !Enum.TryParse<ChannelGroup>(args.Value?.ToString(), out var group)) return;
+        await CloseAsync();
+        await OnGroup.InvokeAsync(group);
+    }
 }

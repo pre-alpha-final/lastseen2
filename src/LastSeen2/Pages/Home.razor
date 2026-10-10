@@ -11,10 +11,16 @@
 <a class="skip-link" href="#main">Skip to content</a>
 <header class="app-header">
     <a class="brand" href="/" aria-label="LastSeen2 home">lastseen<span>2</span></a>
-    @if (unlocked || Session.Key is not null)
-    {
-        <button class="btn btn-outline-light" @onclick="LockAsync">Lock</button>
-    }
+    <div class="header-actions">
+        @if (unlocked)
+        {
+            <button class="btn btn-outline-light" @onclick="LoadBoardAsync" disabled="@(busy || ordering)"><UiIcon Name="refresh" />Refresh</button>
+        }
+        @if (unlocked || Session.Key is not null)
+        {
+            <button class="btn btn-outline-light" @onclick="LockAsync"><UiIcon Name="lock" />Lock</button>
+        }
+    </div>
 </header>
 <main id="main" tabindex="-1">
     @if (restoring)
@@ -40,7 +46,6 @@
     }
     else
     {
-        <div class="board-toolbar"><button class="btn btn-outline-light" @onclick="LoadBoardAsync" disabled="@(busy || ordering)">Refresh</button></div>
         @if (error is not null)
         {
             <div class="state-panel error-message" role="alert"><p>@error</p><button class="btn btn-primary" @onclick="LoadBoardAsync" disabled="@busy">@(orderReview ? "Reload and review" : "Retry loading board")</button></div>
@@ -51,7 +56,7 @@
         {
             <div class="board-grid" data-revision="@board.Revision" @ref="boardElement" data-order-disabled="@((ControlsDisabled || dialogOpen).ToString().ToLowerInvariant())" aria-busy="@ordering.ToString().ToLowerInvariant()">
                 <section class="panel videos-panel" aria-labelledby="videos-heading">
-                    <div class="section-heading"><h2 id="videos-heading"><svg class="section-symbol" viewBox="0 0 24 28" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 2h18v24l-9-7-9 7Z" /></svg> Saved Videos</h2><div class="heading-actions"><span class="count" aria-label="@($"{board.Videos.Length} saved videos")">@board.Videos.Length</span><button disabled="@ControlsDisabled" class="btn btn-primary" @onclick="() => OpenVideo(null)">+ Add Video</button></div></div>
+                    <div class="section-heading"><h2 id="videos-heading"><span class="section-symbol"><UiIcon Name="bookmark" /></span> Saved Videos</h2><div class="heading-actions"><span class="visually-hidden" aria-label="@($"{board.Videos.Length} saved videos")">@board.Videos.Length</span><button disabled="@ControlsDisabled" class="btn btn-primary" @onclick="() => OpenVideo(null)"><UiIcon Name="plus" /><span><span class="visually-hidden">+ </span>Add Video</span></button></div></div>
                     @if (board.Videos.Length == 0)
                     {
                         <div class="empty-videos"><span aria-hidden="true">▷</span><p>No saved videos yet.</p></div>
@@ -62,7 +67,7 @@
                     }
                 </section>
                 <section class="panel channels-panel" aria-labelledby="channels-heading">
-                    <div class="section-heading"><h2 id="channels-heading"><span class="section-symbol" aria-hidden="true">☷</span> Channels</h2><div class="heading-actions"><span class="count" aria-label="@($"{ChannelCount} channels")">@ChannelCount</span><button disabled="@ControlsDisabled" class="btn btn-primary" @onclick="() => OpenChannel(null)">+ Add Channel</button></div></div>
+                    <div class="section-heading"><h2 id="channels-heading"><span class="section-symbol"><UiIcon Name="users" /></span> Channels</h2><div class="heading-actions"><span class="visually-hidden" aria-label="@($"{ChannelCount} channels")">@ChannelCount</span><button disabled="@ControlsDisabled" class="btn btn-primary" @onclick="() => OpenChannel(null)"><UiIcon Name="plus" /><span><span class="visually-hidden">+ </span>Add Channel</span></button></div></div>
                     <ChannelSection Disabled="ControlsDisabled" OnMove="MoveChannelAsync" Group="ChannelGroup.Frequent" OnEdit="c => OpenChannel(c)" OnDelete="c => OpenChannel(c, true)" Channels="board.Channels.Frequent" />
                     <ChannelSection Disabled="ControlsDisabled" OnMove="MoveChannelAsync" Group="ChannelGroup.Infrequent" OnEdit="c => OpenChannel(c)" OnDelete="c => OpenChannel(c, true)" Channels="board.Channels.Infrequent" />
                     <ChannelSection Disabled="ControlsDisabled" OnMove="MoveChannelAsync" Group="ChannelGroup.Archived" OnEdit="c => OpenChannel(c)" OnDelete="c => OpenChannel(c, true)" Channels="board.Channels.Archived" />
@@ -121,7 +126,7 @@
             var result = await save(key);
             if (attempt != generation || disposed) return;
             ApplyBoard(result);
-            orderStatus = "Order saved.";
+            orderStatus = null;
         }
         catch (ApiClientException ex)
         {

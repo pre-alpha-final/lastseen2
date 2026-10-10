@@ -18,13 +18,16 @@ if (!base || !key || process.env.PHASE6_ISOLATED !== 'yes') throw Error('Set PHA
  for(const title of ['Video A','Video B','Video C']) b=await api('/videos','POST',{expectedRevision:b.revision,title,url:'https://example.com/video',thumbnailMode:'Automatic',manualThumbnailUrl:null});
  for(const name of ['Channel A','Channel B','Channel C']) b=await api('/channels','POST',{expectedRevision:b.revision,name,url:'https://example.com/channel',group:'Frequent'});
  const button=name=>page.getByRole('button',{name,exact:true});
+ const openMove=async name=>{const handle=button('Move '+name);await handle.focus();await page.keyboard.press('Enter');await handle.locator('..').locator('.move-options').waitFor();};
+ const moveButton=async name=>{await openMove(name.replace(/^Move /,'').replace(/ (up|down)$/,''));return button(name);};
+ const moveGroup=async(name,group)=>{await openMove(name);await page.getByLabel('Move '+name+' to group').selectOption(group);};
  const ready=()=>page.locator('.board-grid[data-order-disabled="false"]').waitFor();
  const unlock=async()=>{await page.getByLabel('Access key',{exact:true}).fill(key);await button('Unlock board').click();await ready();};
  const videoNames=()=>page.locator('.video-row .bookmark-title').evaluateAll(es=>es.map(e=>e.firstChild.textContent));
- const saved=async(revision)=>{await page.waitForFunction(r=>document.querySelector('.board-grid')?.dataset.revision===String(r+1),revision);await page.waitForFunction(()=>document.querySelector('.order-status')?.textContent==='Order saved.');await ready();assert.equal((await api()).revision,revision+1);};
+ const saved=async(revision)=>{await page.waitForFunction(r=>document.querySelector('.board-grid')?.dataset.revision===String(r+1),revision);await ready();assert.equal(await page.locator('.order-status').textContent(),'');assert.equal((await api()).revision,revision+1);};
  await page.goto(base);await unlock();
  // Keyboard move uses the same complete reorder endpoint.
- await button('Move Video C down').focus();await page.keyboard.press('Enter');await saved(b.revision);b=await api();
+ await (await moveButton('Move Video C down')).focus();await page.keyboard.press('Enter');await saved(b.revision);b=await api();
  assert.deepEqual(await videoNames(),['Video B','Video C','Video A']);
  await page.reload();await ready();assert.deepEqual(await videoNames(),b.videos.map(v=>v.title));
  const drag=async(source,target,edge=.85)=>{
@@ -43,8 +46,8 @@ if (!base || !key || process.env.PHASE6_ISOLATED !== 'yes') throw Error('Set PHA
  assert.equal(await page.locator('.archived .count').innerText(),'1');
  await drag(group('Archived').locator('.drag-handle'),group('Infrequent'));await saved(b.revision);b=await api();assert.equal(b.channels.archived.length,0);assert.equal(b.channels.infrequent[0].name,'Channel B');
  // Keyboard group select and boundary controls.
- await page.getByLabel('Move Channel B to group').selectOption('Frequent');await saved(b.revision);b=await api();assert.equal(b.channels.frequent[0].name,'Channel B');
- assert(await button('Move Channel B up').isDisabled());await button('Move Channel B down').focus();await page.keyboard.press('Enter');await saved(b.revision);b=await api();
+ await moveGroup('Channel B','Frequent');await saved(b.revision);b=await api();assert.equal(b.channels.frequent[0].name,'Channel B');
+ await openMove('Channel B');assert(await button('Move Channel B up').isDisabled());await button('Move Channel B down').focus();await page.keyboard.press('Enter');await saved(b.revision);b=await api();
  // Touch drag uses browser touch events, not an interop shortcut.
  const cdp=await context.newCDPSession(page);
  const touchDrag=async(source,target)=>{
@@ -63,11 +66,11 @@ if (!base || !key || process.env.PHASE6_ISOLATED !== 'yes') throw Error('Set PHA
  const popup=page.waitForEvent('popup');await page.locator('.video-row .bookmark-title').first().click();await (await popup).close();assert.equal((await api()).revision,b.revision);
  // Duplicate moves disabled during an in-flight save.
  let writes=0;await page.route('**/api/videos/reorder',async r=>{writes++;await new Promise(resolve=>setTimeout(resolve,400));await r.continue();});
- await button('Move '+b.videos[0].title+' down').click();await page.waitForFunction(()=>document.querySelector('.order-status').textContent==='Saving order…');
+ await (await moveButton('Move '+b.videos[0].title+' down')).click();await page.waitForFunction(()=>document.querySelector('.order-status').textContent==='Saving order…');
  assert(await button('+ Add Video').isDisabled());assert(await button('Refresh').isDisabled());await page.keyboard.press('Enter');await saved(b.revision);b=await api();assert.equal(writes,1);await page.unroute('**/api/videos/reorder');
  // Real concurrent writer triggers conflict; no attempted local order remains.
  b=await api('/channels','POST',{expectedRevision:b.revision,name:'Other session',url:'https://example.com/other',group:'Infrequent'});
- await button('Move '+b.videos[0].title+' down').click();await button('Reload and review').waitFor();assert.equal(await page.locator('.board-grid').count(),0);
+ await (await moveButton('Move '+b.videos[0].title+' down')).click();await button('Reload and review').waitFor();assert.equal(await page.locator('.board-grid').count(),0);
  await button('Reload and review').click();await ready();assert.deepEqual(await videoNames(),b.videos.map(v=>v.title));
  // Both rejected and committed-but-lost responses require explicit reload.
  for(const committed of [false,true]){
@@ -81,11 +84,11 @@ if (!base || !key || process.env.PHASE6_ISOLATED !== 'yes') throw Error('Set PHA
  await page.screenshot({path:`${screenshotDir}/phase6-mobile.png`,fullPage:true});
  // Unauthorized channel move clears the board and session.
  await page.route('**/api/channels/*/move',r=>r.fulfill({status:401}));
- await page.getByLabel('Move '+b.channels.frequent[0].name+' to group').selectOption('Archived');await page.getByRole('heading',{name:'Unlock board'}).waitFor();assert.equal(await page.evaluate(()=>sessionStorage.getItem('lastseen2.accessKey')),null);
+ await moveGroup(b.channels.frequent[0].name,'Archived');await page.getByRole('heading',{name:'Unlock board'}).waitFor();assert.equal(await page.evaluate(()=>sessionStorage.getItem('lastseen2.accessKey')),null);
  await page.unroute('**/api/channels/*/move');await unlock();await page.setViewportSize({width:1536,height:1024});
  // A late successful response after Lock must not reveal data again.
  await page.route('**/api/videos/reorder',async r=>{const response=await r.fetch();await new Promise(resolve=>setTimeout(resolve,500));await r.fulfill({response});});
- await button('Move '+b.videos[0].title+' down').click();await button('Lock').click();await page.waitForTimeout(700);assert.equal(await page.locator('.board-grid').count(),0);assert.equal(await page.evaluate(()=>sessionStorage.getItem('lastseen2.accessKey')),null);
+ await (await moveButton('Move '+b.videos[0].title+' down')).click();await button('Lock').click();await page.waitForTimeout(700);assert.equal(await page.locator('.board-grid').count(),0);assert.equal(await page.evaluate(()=>sessionStorage.getItem('lastseen2.accessKey')),null);
  assert.deepEqual(errors,[]);console.log('Phase 6 passed: keyboard/pointer/touch, empty groups/counts, reload persistence, edit rules, duplicate suppression, conflicts, rejected/uncertain saves, 401, Lock race and mobile layout.');
  } finally {await browser.close();}
 })().catch(e=>{console.error(e);process.exit(1);});

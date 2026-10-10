@@ -1,6 +1,7 @@
 @using LastSeen2.Contracts
 <li class="video-row" data-id="@Video.Id">
-    <img src="@Preview" alt="" width="144" height="81" loading="lazy" referrerpolicy="no-referrer" @onerror="() => failed = true" />
+    <OrderControls Name="@Video.Title" Index="Index" Count="Count" Disabled="Disabled" OnMove="OnMove" />
+    <img src="@Preview" alt="" width="128" height="64" loading="lazy" referrerpolicy="no-referrer" @onerror="() => failed = true" />
     <div class="video-copy">
         @if (string.IsNullOrEmpty(Video.Url))
         {
@@ -8,15 +9,13 @@
         }
         else
         {
-            <ProviderIcon Url="@Video.Url" />
             <a class="bookmark-title" href="@Video.Url" target="_blank" rel="noopener noreferrer">@Video.Title<span class="visually-hidden"> (opens in a new tab)</span></a>
             <span class="bookmark-url">@Video.Url</span>
         }
     </div>
-    <OrderControls Name="@Video.Title" Index="Index" Count="Count" Disabled="Disabled" OnMove="OnMove" />
     <div class="item-actions">
-        <button disabled="@Disabled" class="btn btn-outline-light" aria-label="@($"Edit video: {Video.Title}")" @onclick="() => OnEdit.InvokeAsync(Video)">✎</button>
-        <button disabled="@Disabled" class="btn delete-button" aria-label="@($"Delete video: {Video.Title}")" @onclick="() => OnDelete.InvokeAsync(Video)">×</button>
+        <button disabled="@Disabled" class="btn icon-button" aria-label="@($"Edit video: {Video.Title}")" @onclick="() => OnEdit.InvokeAsync(Video)"><UiIcon Name="edit" /></button>
+        <button disabled="@Disabled" class="btn icon-button delete-button" aria-label="@($"Delete video: {Video.Title}")" @onclick="() => OnDelete.InvokeAsync(Video)"><UiIcon Name="trash" /></button>
     </div>
 </li>
 @code {

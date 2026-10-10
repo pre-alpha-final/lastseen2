@@ -77,9 +77,8 @@ async function smoke() {
   const assets={
     '/':'text/html','/client-route':'text/html','/_framework/blazor.webassembly.js':'javascript',
     '/_framework/dotnet.js':'javascript','/_framework/dotnet.native.wasm':'application/wasm',
-    '/css/app.css':'text/css','/vendor/sketchy/bootstrap.min.css':'text/css',
-    '/vendor/fonts/neucha-latin-400-normal.woff2':'font/woff2',
-    '/vendor/fonts/cabin-sketch-latin-700-normal.woff2':'font/woff2',
+    '/css/app.css':'text/css',
+    '/vendor/fonts/ComingSoon-Regular.ttf':'application/x-font-ttf',
     '/images/video-placeholder.svg':'image/svg+xml','/dialog.js':'javascript','/ordering.js':'javascript',
     '/vendor/sortablejs/sortable.complete.esm.js':'javascript'
   };
@@ -161,6 +160,7 @@ function scanAssets() {
     // Kill the real database, attempt a mutation, then recover the same files.
     await stop(mongo);
     const failed=page.waitForResponse(r=>r.url().endsWith('/api/videos/reorder'));
+    await button('Move '+before.videos[0].title).click();
     await button('Move '+before.videos[0].title+' down').click();
     assert.equal((await failed).status(),503);
     await button('Reload and review').waitFor();assert.equal(await page.locator('.board-grid').count(),0);

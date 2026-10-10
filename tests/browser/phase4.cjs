@@ -70,7 +70,21 @@ const populated = { revision: 9, videos: [
  board=populated; await unlock(); await unlocked();
  await page.waitForFunction(() => [...document.querySelectorAll('.video-row img')].every(i => i.complete));
  assert.equal(await page.locator('.video-row img').nth(3).getAttribute('src'),'/images/video-placeholder.svg');
+ // Reference layout: board directly below the header, compact rows, no runtime Bootstrap.
+ assert.equal(await page.locator('link[href*=sketchy]').count(),0);
+ const desktopVideos=await page.locator('.videos-panel').boundingBox(),desktopChannels=await page.locator('.channels-panel').boundingBox();
+ assert(desktopVideos.y<110 && desktopVideos.width/desktopChannels.width>1.9);
+ assert((await page.locator('.video-row').first().boundingBox()).height<=90);
+ assert((await page.locator('.channel-list li').first().boundingBox()).height<=46);
  await page.screenshot({path:`${screenshotDir}/phase4-populated-desktop.png`,fullPage:true});
+ // Ordering disclosure is reachable without dragging and Escape restores the handle focus.
+ const handle=page.getByRole('button',{name:'Move '+populated.channels.frequent[0].name,exact:true});
+ await handle.focus();await page.keyboard.press('Enter');
+ await page.getByLabel('Move '+populated.channels.frequent[0].name+' to group').waitFor();
+ await page.keyboard.press('Escape');assert.equal(await handle.getAttribute('aria-expanded'),'false');assert(await handle.evaluate(e=>e===document.activeElement));
+ for(const width of [1280,1024,900,801,800]) {
+   await page.setViewportSize({width,height:1024});assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),`overflow at ${width}`);
+ }
  for (const width of [390,320]) {
    await page.setViewportSize({width,height:844});
    assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `overflow at ${width}`);

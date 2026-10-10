@@ -1,6 +1,6 @@
 @using LastSeen2.Contracts
 <section class="channel-group @Group.ToString().ToLowerInvariant()" aria-labelledby="@HeadingId">
-    <div class="group-heading"><h3 id="@HeadingId"><span aria-hidden="true">@Symbol</span> @Group</h3><span class="count" aria-label="@($"{Channels.Length} channels")">@Channels.Length</span></div>
+    <div class="group-heading"><h3 id="@HeadingId"><UiIcon Name="@Symbol" /> @Group</h3><span class="count" aria-label="@($"{Channels.Length} channels")">@Channels.Length</span></div>
     @if (Channels.Length == 0)
     {
         <p class="group-empty">No @Group.ToString().ToLowerInvariant() channels yet.</p>
@@ -9,19 +9,19 @@
         @foreach (var channel in Channels)
         {
             <li @key="channel.Id" data-id="@channel.Id">
+            <OrderControls Name="@channel.Name" Index="Array.IndexOf(Channels, channel)" Count="Channels.Length" Group="Group" Disabled="Disabled" OnMove="i => OnMove.InvokeAsync((channel.Id, Group, i))" OnGroup="g => OnMove.InvokeAsync((channel.Id, g, 0))" />
             @if (string.IsNullOrEmpty(channel.Url))
             {
-                <span class="channel-title">@channel.Name</span>
+                <span class="provider-spacer" aria-hidden="true"></span><span class="channel-title">@channel.Name</span>
             }
             else
             {
                 <ProviderIcon Url="@channel.Url" /><a class="channel-title" href="@channel.Url" target="_blank" rel="noopener noreferrer">@channel.Name<span class="visually-hidden"> (opens in a new tab)</span></a>
             }
             <div class="item-actions">
-                <button disabled="@Disabled" class="btn btn-outline-light" aria-label="@($"Edit channel: {channel.Name}")" @onclick="() => OnEdit.InvokeAsync(channel)">✎</button>
-                <button disabled="@Disabled" class="btn delete-button" aria-label="@($"Delete channel: {channel.Name}")" @onclick="() => OnDelete.InvokeAsync(channel)">×</button>
+                <button disabled="@Disabled" class="btn icon-button" aria-label="@($"Edit channel: {channel.Name}")" @onclick="() => OnEdit.InvokeAsync(channel)"><UiIcon Name="edit" /></button>
+                <button disabled="@Disabled" class="btn icon-button delete-button" aria-label="@($"Delete channel: {channel.Name}")" @onclick="() => OnDelete.InvokeAsync(channel)"><UiIcon Name="trash" /></button>
             </div>
-            <OrderControls Name="@channel.Name" Index="Array.IndexOf(Channels, channel)" Count="Channels.Length" Group="Group" Disabled="Disabled" OnMove="i => OnMove.InvokeAsync((channel.Id, Group, i))" OnGroup="g => OnMove.InvokeAsync((channel.Id, g, 0))" />
             </li>
         }
     </ul>
@@ -34,5 +34,5 @@
     [Parameter] public bool Disabled { get; set; }
     [Parameter] public EventCallback<(Guid Id, ChannelGroup Group, int Index)> OnMove { get; set; }
     private string HeadingId => $"group-{Group}";
-    private string Symbol => Group switch { ChannelGroup.Frequent => "☆", ChannelGroup.Infrequent => "◷", _ => "▱" };
+    private string Symbol => Group switch { ChannelGroup.Frequent => "star", ChannelGroup.Infrequent => "clock", _ => "archive" };
 }

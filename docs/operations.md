@@ -106,6 +106,6 @@ A crash before metadata publication leaves the previous board authoritative; a c
 
 ## Release evidence and limits
 
-Run the reproducible [release verification](../tests/browser/README.md#release-verification-phase-7) before shipping. It uses a private standalone MongoDB process, never the configured application collection. Evidence includes backend TRX results, published HTTP checks, browser screenshots and logs. Review screenshots against `docs/initial_idea.jpg`: two-thirds Saved Videos, one-third Channels, dark Sketchy styling, green/amber/red groups and stacked narrow screens.
+Run the reproducible [release verification](../tests/browser/README.md#release-verification-phase-7) before shipping. It uses a private standalone MongoDB process, never the configured application collection. Evidence includes backend TRX results, published HTTP checks, browser screenshots and logs. Review screenshots against `docs/initial_idea.jpg`: two-thirds Saved Videos, one-third Channels, custom dark styling, green/amber/red groups and stacked narrow screens.
 
 Production deployment, public certificate/proxy provisioning and backup restoration against a real operator environment are operational steps, not performed by the test runner. Browser coverage uses Edge/Chromium with emulated touch; physical devices and other engines remain unverified. Provider fixtures keep release tests deterministic; the recorded live Twitch/YouTube observations are in the README and are not availability guarantees.

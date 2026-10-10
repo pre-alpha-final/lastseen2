@@ -12,7 +12,7 @@ The finished app provides:
 - Channels occupying the remaining third, grouped into Frequent, Infrequent, and Archived.
 - Add, edit, delete, and persistent drag-and-drop ordering.
 - Automatic thumbnail lookup where available, with manual image URLs.
-- A dark-only interface using [Bootswatch Sketchy](https://bootswatch.com/sketchy/), customized to match the reference.
+- A dark-only custom interface matching the reference’s handwritten style and compact layout. The user withdrew the Bootswatch Sketchy requirement on 2026-10-10.
 - Shared-key authentication and MongoDB persistence.
 
 ## Decisions and Agent Rules
@@ -427,3 +427,36 @@ Removed the page-title tagline as requested; the title is now LastSeen2 and the 
 **Verification:** Release solution build passed with zero warnings/errors. `node tests/browser/phase4.cjs` passed against a disposable Development host with synthetic board/image fixtures, including keyboard focus, authentication/session flows, errors, safe rendering and 390/320px overflow checks. Visually reviewed desktop, unlock and mobile screenshots in `artifacts/ui-texture`. `git diff --check` and byte-level checks of all three changed/new text files passed; CRLF preserved. The temporary host was stopped. No application database was accessed. Full database/CRUD/release suites were not rerun for this CSS/SVG-only change.
 
 **Maintenance:** Keep the grain low-opacity and applied as a background so it cannot obscure text, intercept input or interfere with dialog/drag layers. The texture is local and requires no CDN or animation. README setup and operational guidance remain unchanged.
+
+
+### Reference UI redesign follow-up — Complete (2026-10-10)
+
+**User decision:** Bootstrap/Bootswatch Sketchy is no longer required. Favor the original reference's appearance while keeping the implementation and everyday interactions practical. This supersedes the earlier Sketchy/font requirements in the historical phase deliverables and handoffs; the initial idea files remain unchanged as historical references.
+
+**Delivered:** Replaced Sketchy with custom local CSS and a pinned, locally served Coming Soon handwritten font. Removed the unused Sketchy stylesheet/licenses and Neucha/Cabin Sketch assets. The logo uses solid handwritten lettering with a blue 2; Refresh and Lock share the compact header so the board begins directly underneath. Retained the desktop two-thirds/one-third hierarchy and stacked mobile layout. Video rows use smaller previews, title/URL hierarchy and unboxed pencil/trash actions; channel groups use compact single-line rows, outline star/clock/archive icons, restrained green/amber/red surfaces and circular counts. UiIcon supplies small local SVGs rather than another icon dependency. Dialogs, unlock, inputs, buttons, loading/errors and keyboard focus use the same custom styles. No marketing copy was added.
+
+**Ordering and accessibility:** The dotted handle is both the existing drag target and a keyboard/touch disclosure for Up, Down and channel Group controls. Its accessible name and expanded state identify the action; Enter/click opens it, Escape closes it and restores handle focus. A successful move also closes it and returns focus before applying the authoritative snapshot. Mutation disabling, serialized saves, modal focus, pointer/touch ordering, explicit uncertain-save review and session clearing remain intact. Popups do not clip against channel group borders. At 320px the logo scales down to preserve header space; long titles wrap without overflowing.
+
+**Contracts/configuration:** No API, authentication, storage, provider or production configuration changes. No frontend build tool or runtime CDN was introduced. Coming Soon's exact upstream commit, file hash and Apache 2.0 license are recorded under wwwroot/vendor; the release smoke check validates the active TTF's ASP.NET Core MIME type. Browser selectors now open the ordering disclosure before invoking its buttons/select.
+
+**Verification:** `node tests/browser/release.cjs` passed end to end; evidence: `artifacts/release-24f389a0-f03c-4195-a17c-f0c4d13ae1c6`. Release build passed with zero warnings/errors, all **111 backend tests passed with zero skips**, production publish/assets and secret scans passed, and Phase 4/5/6 browser suites plus real restart, database outage/recovery and key rotation passed. Phase 4 additionally checks compact desktop geometry, no loaded Sketchy stylesheet, keyboard opening/Escape/focus of move controls, and overflow at 1280/1024/900/801/800/390/320px. Reviewed populated desktop/mobile, unlock and desktop/mobile dialogs against the reference. Final previews: [desktop](screenshots/redesign-desktop.png), [mobile](screenshots/redesign-mobile.png), [unlock](screenshots/redesign-unlock.png); prior committed screenshots are preserved. `git diff --check` and byte-level checks of changed/new text files passed; CRLF preserved with no line-ending-only changes. All writes used disposable isolated localhost MongoDB; no application data was accessed. Temporary hosts/database processes were stopped.
+
+**Maintenance:** Keep custom styling in css/app.css and reusable SVGs in UiIcon. Preserve the handle's keyboard/touch disclosure, focus return, drag selector, Blazor DOM-comment restoration, and revision-aware operations. Rerun the existing release gate after changes; no ignored helper is a prerequisite. Physical touch hardware and other browser engines remain unverified; live metadata was not repeated because provider code did not change.
+
+
+### UI character follow-up — Complete (2026-10-10)
+
+**User feedback and delivered behavior:** The reference redesign still felt sterile. Added a restrained charcoal/pencil finish: stronger local grain and sparse diagonal pencil strokes, slightly uneven corners and faint secondary frame lines, warmer off-white text, more substantial handwritten headings/logo, small static tilts on decorative symbols, deeper green/amber/red group washes and textured count badges/buttons. Layout, item content, controls, focus indicators and all interactions remain the same. No marketing copy, dependency, API, configuration or storage changes.
+
+**Verification:** `dotnet build src/LastSeen2.slnx -c Release --no-restore --nologo` passed with zero warnings/errors. `node tests/browser/phase4.cjs` passed against a disposable Development host with intercepted synthetic board/image fixtures: authentication/session/error flows, key isolation, safe text/image fallback, keyboard focus and move disclosure, compact desktop geometry and responsive overflow checks down to 320px. Reviewed desktop/mobile/unlock screenshots, including enlarged text/icon crops to check texture readability. Final evidence: `artifacts/ui-character-91a468ac-b279-4eea-9f70-ea2c34041e0c`; previews: [desktop](screenshots/character-desktop.png), [mobile](screenshots/character-mobile.png), [unlock](screenshots/character-unlock.png). `git diff --check` and byte-level tracked/untracked checks passed; existing CRLF preserved. The temporary host was stopped; no database was accessed. Full backend/database/release suites were not rerun for this CSS/SVG-only change.
+
+**Maintenance:** Texture stays in the local surface-grain.svg background; pencil frame pseudo-elements have pointer-events: none and cannot intercept input. Decorative tilts never move item rows or drag targets. Native dialogs retain their own positioning; the relative frame rule excludes dialog elements. Keep the pencil strokes sparse and low-opacity so labels, focus outlines and previews remain clear. Earlier screenshot references are preserved.
+
+
+### Ordering success message follow-up — Complete (2026-10-10)
+
+**Delivered:** Removed the persistent “Order saved.” message after video/channel ordering. Successful saves clear the status so its existing empty-state CSS also removes the extra space. “Saving order…” and error/reload-review feedback remain. Updated the existing Phase 6 browser helper to wait for the authoritative revision and enabled controls, then check that the status is empty. No API, configuration or storage changes; README operating instructions remain accurate.
+
+**Verification:** `dotnet build src/LastSeen2.slnx -c Release --no-restore --nologo` passed with zero warnings/errors; `node --check tests/browser/phase6.cjs` and `git diff --check` passed. Changed files retain CRLF with no line-ending-only changes. Browser/database suites were not rerun for this small status-copy change. No application data was accessed.
+
+**Maintenance:** Keep progress/error feedback, but do not restore a persistent ordering-success notice. The existing ordering browser suite now verifies the cleared status after successful moves.
