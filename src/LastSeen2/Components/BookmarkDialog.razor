@@ -93,7 +93,7 @@
         module = await JS.InvokeAsync<IJSObjectReference>("import", "/dialog.js");
         if (disposed) return;
         receiver = DotNetObjectReference.Create(this);
-        handle = await module.InvokeAsync<IJSObjectReference>("open", dialog, receiver);
+        handle = await module.InvokeAsync<IJSObjectReference>("open", dialog, receiver, !Delete && Id is not null);
     }
     private static bool ValidUrl(string value) => Uri.TryCreate(value.Trim(), UriKind.Absolute, out var uri)
         && uri.Scheme is "http" or "https" && string.IsNullOrEmpty(uri.UserInfo);

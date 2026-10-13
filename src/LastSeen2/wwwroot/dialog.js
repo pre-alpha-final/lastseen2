@@ -1,4 +1,4 @@
-export function open(dialog, receiver) {
+export function open(dialog, receiver, selectUrl) {
     const previous = document.activeElement;
     const cancel = event => { event.preventDefault(); receiver.invokeMethodAsync('CancelFromKeyboard'); };
     const trap = event => {
@@ -13,6 +13,9 @@ export function open(dialog, receiver) {
     dialog.addEventListener('cancel', cancel);
     dialog.addEventListener('keydown', trap);
     dialog.showModal();
+    const url = selectUrl ? dialog.querySelector('#bookmark-url') : null;
+    url?.focus();
+    url?.select();
     return { dispose() {
         dialog.removeEventListener('cancel', cancel);
         dialog.removeEventListener('keydown', trap);
