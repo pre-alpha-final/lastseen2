@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text;
@@ -13,6 +14,11 @@ public sealed class MetadataTests
     private const string VideoUrl = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
     private const string Thumbnail = "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg";
     private const string Json = """{"version":"1.0","type":"video","title":"Fixture title","thumbnail_url":"https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg","html":"<script>never return me</script>"}""";
+
+    private const string TwitchUrl = "https://www.twitch.tv/videos/123456";
+    private const string TwitchThumbnail = "https://static-cdn.jtvnw.net/image.jpg";
+    private const string TwitchPreview = """<meta property="og:title" content="Fixture Twitch title"><meta property="og:image" content="https://static-cdn.jtvnw.net/image.jpg">""";
+    private const string TwitchShell = """<meta property="og:title" content="VOD - Twitch"><meta property="og:image" content="https://static-cdn.jtvnw.net/ttv-static-metadata/twitch_logo3.jpg">""";
 
     private sealed class Handler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> send) : HttpMessageHandler
     {
@@ -69,6 +75,104 @@ public sealed class MetadataTests
     }
 
     [Theory]
+    [InlineData(TwitchUrl, 2)]
+    [InlineData(TwitchUrl, 3)]
+    [InlineData("https://twitch.tv/channel/clip/Example-Slug_123", 2)]
+    [InlineData("https://twitch.tv/channel/clip/Example-Slug_123", 3)]
+    [InlineData("https://clips.twitch.tv/Example-Slug_123", 2)]
+    [InlineData("https://clips.twitch.tv/Example-Slug_123", 3)]
+    public async Task TwitchRetriesUnavailablePreviewsUntilSuccess(string url, int successAttempt)
+    {
+        var attempts = 0;
+        var started = new List<TimeSpan>();
+        var watch = Stopwatch.StartNew();
+        using var handler = new Handler((_, _) =>
+        {
+            started.Add(watch.Elapsed);
+            return Task.FromResult(Response(++attempts == successAttempt ? TwitchPreview : TwitchShell, "text/html"));
+        });
+        using var http = new ProviderHttpClient(new HttpClient(handler));
+        var lookup = new MetadataService(http).LookupAsync(url, default);
+        Assert.Single(handler.Requests); // The first attempt starts without a delay.
+        var result = await lookup;
+        Assert.Equal(new MetadataResult(MetadataStatus.Available, "Fixture Twitch title", TwitchThumbnail, null), result);
+        Assert.Equal(successAttempt, handler.Requests.Count);
+        for (var i = 1; i < started.Count; i++)
+            Assert.True(started[i] - started[i - 1] >= TimeSpan.FromMilliseconds(950), "Twitch retries must wait one second.");
+    }
+
+    [Theory]
+    [InlineData("<meta property='og:title' content='Title only'>", "Title only", null)]
+    [InlineData("<meta property='og:image' content='https://static-cdn.jtvnw.net/image.jpg'>", null, TwitchThumbnail)]
+    public async Task TwitchPartialSuggestionsDoNotRetry(string body, string? title, string? thumbnail)
+    {
+        using var handler = new Handler((_, _) => Task.FromResult(Response(body, "text/html")));
+        using var http = new ProviderHttpClient(new HttpClient(handler));
+        var result = await new MetadataService(http).LookupAsync(TwitchUrl, default);
+        Assert.Equal(new MetadataResult(MetadataStatus.Available, title, thumbnail, null), result);
+        Assert.Single(handler.Requests);
+    }
+
+    [Theory]
+    [InlineData(2)]
+    [InlineData(3)]
+    public async Task TwitchRetriesAfterFullAttemptTimeouts(int successAttempt)
+    {
+        var attempts = 0;
+        using var handler = new Handler(async (_, ct) =>
+        {
+            if (++attempts < successAttempt) await Task.Delay(Timeout.Infinite, ct);
+            return Response(TwitchPreview, "text/html");
+        });
+        using var http = new ProviderHttpClient(new HttpClient(handler));
+        var result = await new MetadataService(http).LookupAsync(TwitchUrl, default);
+        Assert.Equal(new MetadataResult(MetadataStatus.Available, "Fixture Twitch title", TwitchThumbnail, null), result);
+        Assert.Equal(successAttempt, handler.Requests.Count);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task TwitchRetriesTransientTransportFailures(bool timeout)
+    {
+        var attempts = 0;
+        using var handler = new Handler((_, _) => ++attempts == 1
+            ? throw (timeout ? new OperationCanceledException() : new HttpRequestException("fixture failure"))
+            : Task.FromResult(Response(TwitchPreview, "text/html")));
+        using var http = new ProviderHttpClient(new HttpClient(handler));
+        Assert.Equal(MetadataStatus.Available, (await new MetadataService(http).LookupAsync(TwitchUrl, default)).Status);
+        Assert.Equal(2, handler.Requests.Count);
+    }
+
+    [Fact]
+    public async Task TwitchCallerCancellationDuringRetryDelayPreventsFurtherAttempts()
+    {
+        using var caller = new CancellationTokenSource();
+        using var handler = new Handler((_, _) => Task.FromResult(Response(TwitchShell, "text/html")));
+        using var http = new ProviderHttpClient(new HttpClient(handler));
+        var lookup = new MetadataService(http).LookupAsync(TwitchUrl, caller.Token);
+        Assert.Single(handler.Requests);
+        Assert.False(lookup.IsCompleted);
+        caller.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => lookup);
+        Assert.Single(handler.Requests);
+    }
+
+    [Fact]
+    public async Task TwitchCallerCancellationPreventsFurtherAttempts()
+    {
+        using var caller = new CancellationTokenSource();
+        using var handler = new Handler((_, _) =>
+        {
+            caller.Cancel();
+            return Task.FromResult(Response(TwitchShell, "text/html"));
+        });
+        using var http = new ProviderHttpClient(new HttpClient(handler));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => new MetadataService(http).LookupAsync(TwitchUrl, caller.Token));
+        Assert.Single(handler.Requests);
+    }
+
+    [Theory]
     [InlineData("https://127.0.0.1/video")]
     [InlineData("https://youtube.com.evil.example/watch?v=dQw4w9WgXcQ")]
     [InlineData("https://www.youtube.com:444/watch?v=dQw4w9WgXcQ")]
@@ -98,6 +202,7 @@ public sealed class MetadataTests
         Assert.Equal(MetadataStatus.Unavailable, result.Status);
         Assert.Null(result.Title);
         Assert.Null(result.ThumbnailUrl);
+        Assert.Single(handler.Requests);
     }
 
     [Theory]
@@ -110,18 +215,23 @@ public sealed class MetadataTests
         using var handler = new Handler((_, _) => Task.FromResult(new HttpResponseMessage((HttpStatusCode)status)));
         using var http = new ProviderHttpClient(new HttpClient(handler));
         Assert.Equal(MetadataStatus.Unavailable, (await new MetadataService(http).LookupAsync(VideoUrl, default)).Status);
+        Assert.Single(handler.Requests);
     }
 
-    [Fact]
-    public async Task DeadlineIsNonfatalButCallerCancellationPropagates()
+    [Theory]
+    [InlineData(VideoUrl, 1)]
+    [InlineData(TwitchUrl, 3)]
+    public async Task AttemptTimeoutIsNonfatalButCallerCancellationPropagates(string url, int expectedAttempts)
     {
         using var handler = new Handler(async (_, ct) => { await Task.Delay(Timeout.Infinite, ct); return Response(Json); });
         using var http = new ProviderHttpClient(new HttpClient(handler));
         var service = new MetadataService(http);
-        Assert.Equal(MetadataStatus.Unavailable, (await service.LookupAsync(VideoUrl, default)).Status);
+        Assert.Equal(MetadataStatus.Unavailable, (await service.LookupAsync(url, default)).Status);
+        Assert.Equal(expectedAttempts, handler.Requests.Count);
         using var caller = new CancellationTokenSource();
         caller.Cancel();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.LookupAsync(VideoUrl, caller.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.LookupAsync(url, caller.Token));
+        Assert.Equal(expectedAttempts, handler.Requests.Count);
     }
 
     [Theory]
@@ -229,17 +339,18 @@ public sealed class MetadataTests
         var service = new MetadataService(http);
         Assert.Equal(MetadataStatus.Unavailable, (await service.LookupAsync(VideoUrl, default)).Status);
         Assert.Equal(MetadataStatus.Unavailable, (await service.LookupAsync("https://www.twitch.tv/videos/123", default)).Status);
+        Assert.Equal(4, handler.Requests.Count);
     }
 
     [Fact]
     public async Task TwitchGenericShellIsUnavailable()
     {
-        using var handler = new Handler((_, _) => Task.FromResult(Response("""
-            <meta property="og:title" content="VOD - Twitch">
-            <meta property="og:image" content="https://static-cdn.jtvnw.net/ttv-static-metadata/twitch_logo3.jpg">
-            """, "text/html")));
+        using var handler = new Handler((_, _) => Task.FromResult(Response(TwitchShell, "text/html")));
         using var http = new ProviderHttpClient(new HttpClient(handler));
-        Assert.Equal(MetadataStatus.Unavailable, (await new MetadataService(http).LookupAsync("https://www.twitch.tv/videos/123", default)).Status);
+        var result = await new MetadataService(http).LookupAsync(TwitchUrl, default);
+        Assert.Equal(new MetadataResult(MetadataStatus.Unavailable, null, null,
+            "Preview unavailable. You can still save a title and optional manual thumbnail."), result);
+        Assert.Equal(3, handler.Requests.Count);
     }
 
     [Theory]
@@ -254,6 +365,39 @@ public sealed class MetadataTests
         var board = await service.SaveVideo(null, new(0, "Title", VideoUrl, ThumbnailMode.Automatic, null), default);
         Assert.Equal(1, board.Revision);
         Assert.Null(Assert.Single(board.Videos).AutomaticThumbnailUrl);
+    }
+
+    [Fact]
+    public async Task TwitchApiPreviewsAndAutomaticSavesShareRetriesAndNonfatalFallback()
+    {
+        var attempts = 0;
+        var available = true;
+        using var handler = new Handler((_, _) => Task.FromResult(Response(
+            ++attempts % 3 == 0 && available ? TwitchPreview : TwitchShell, "text/html")));
+        using var http = new ProviderHttpClient(new HttpClient(handler));
+        using var root = new AppFactory();
+        using var factory = ApiTests.WithStore(root, new MemoryBoardStore()).WithWebHostBuilder(builder => builder.ConfigureServices(services =>
+        {
+            services.RemoveAll<IMetadataService>();
+            services.AddSingleton<IMetadataService>(new MetadataService(http));
+        }));
+        using var client = ApiTests.Authorized(factory);
+        var suggestion = await client.PostAsJsonAsync(ApiRoutes.Metadata, new MetadataRequest(TwitchUrl));
+        Assert.Equal(new MetadataResult(MetadataStatus.Available, "Fixture Twitch title", TwitchThumbnail, null),
+            await suggestion.Content.ReadFromJsonAsync<MetadataResult>());
+        Assert.Equal(3, handler.Requests.Count);
+        var request = new SaveVideoRequest(0, "User title", TwitchUrl, ThumbnailMode.Automatic, null);
+        var board = await ApiTests.Board(await client.PostAsJsonAsync(ApiRoutes.Videos, request));
+        var video = Assert.Single(board.Videos);
+        Assert.Equal(TwitchThumbnail, video.AutomaticThumbnailUrl);
+        Assert.Equal("User title", video.Title);
+        Assert.Equal(1, board.Revision);
+        Assert.Equal(6, handler.Requests.Count);
+        available = false;
+        board = await ApiTests.Board(await client.PutAsJsonAsync($"/api/videos/{video.Id}", request with { ExpectedRevision = 1 }));
+        Assert.Equal(TwitchThumbnail, Assert.Single(board.Videos).AutomaticThumbnailUrl);
+        Assert.Equal(2, board.Revision);
+        Assert.Equal(9, handler.Requests.Count);
     }
 
     [Fact]

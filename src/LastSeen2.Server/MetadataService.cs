@@ -15,6 +15,7 @@ public interface IMetadataService
 public sealed class MetadataService(ProviderHttpClient http) : IMetadataService
 {
     public static readonly TimeSpan LookupTimeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan TwitchRetryDelay = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan RegexTimeout = TimeSpan.FromMilliseconds(100);
     private static bool Matches(string text, string pattern) => Regex.IsMatch(text, pattern, RegexOptions.CultureInvariant, RegexTimeout);
 
@@ -23,24 +24,30 @@ public sealed class MetadataService(ProviderHttpClient http) : IMetadataService
         var input = new Uri(BoardService.Url(url, "url"));
         var target = Target(input);
         if (target is null) return new(MetadataStatus.Unsupported, null, null, "Use a title and optional manual thumbnail for this link.");
-        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        deadline.CancelAfter(LookupTimeout);
-        try
+        var youtube = target.Host == "www.youtube.com";
+        var attempts = youtube ? 1 : 3;
+        for (var attempt = 0; attempt < attempts; attempt++)
         {
-            var youtube = target.Host == "www.youtube.com";
-            var body = await http.GetAsync(target, youtube ? "application/json" : "text/html", deadline.Token);
-            var (title, thumbnail) = youtube ? ParseOEmbed(body) : ParseTwitch(body);
-            title = CleanTitle(title);
-            thumbnail = CleanThumbnail(thumbnail);
-            return title is null && thumbnail is null ? Unavailable()
-                : new(MetadataStatus.Available, title, thumbnail, null);
+            if (attempt > 0) await Task.Delay(TwitchRetryDelay, ct);
+            // A timed-out Twitch attempt must not cancel the remaining retries.
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            deadline.CancelAfter(LookupTimeout);
+            try
+            {
+                deadline.Token.ThrowIfCancellationRequested();
+                var body = await http.GetAsync(target, youtube ? "application/json" : "text/html", deadline.Token);
+                var (title, thumbnail) = youtube ? ParseOEmbed(body) : ParseTwitch(body);
+                title = CleanTitle(title);
+                thumbnail = CleanThumbnail(thumbnail);
+                if (title is not null || thumbnail is not null)
+                    return new(MetadataStatus.Available, title, thumbnail, null);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested) { }
+            catch (Exception ex) when (ex is HttpRequestException or IOException or JsonException
+                or RegexMatchTimeoutException or SocketException or InvalidOperationException) { }
         }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested) { return Unavailable(); }
-        catch (Exception ex) when (ex is HttpRequestException or IOException or JsonException
-            or RegexMatchTimeoutException or SocketException or InvalidOperationException)
-        {
-            return Unavailable();
-        }
+        ct.ThrowIfCancellationRequested();
+        return Unavailable();
     }
 
     private static MetadataResult Unavailable() => new(MetadataStatus.Unavailable, null, null,
